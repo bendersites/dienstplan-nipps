@@ -82,7 +82,7 @@ export default function AdminPage() {
     if (!schedData) {
       const { data: newSched } = await supabase
         .from('schedules')
-        .insert([{ month: monthStr, status: 'draft' }])
+        .insert([{ month: monthStr, status: 'draft' }] as any)
         .select()
         .single()
       schedData = newSched
