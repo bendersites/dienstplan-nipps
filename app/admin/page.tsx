@@ -73,7 +73,7 @@ export default function AdminPage() {
     setEmployees(empData || [])
 
     const monthStr = format(monthStart, 'yyyy-MM-dd')
-    let { data: schedData } = await supabase
+    let { data: schedData } = await (supabase as any)
       .from('schedules')
       .select('*')
       .eq('month', monthStr)
