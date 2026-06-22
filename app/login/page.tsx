@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -28,47 +29,50 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
-        <div>
-          <h1 className="text-3xl font-bold text-center text-gray-900">
-            Schreibwaren Nipps
-          </h1>
-          <p className="mt-2 text-center text-gray-600">
-            Dienstplan-App
-          </p>
+    <div style={{ minHeight: '100vh', background: '#f5f5f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ width: '100%', maxWidth: '420px', padding: '0 24px' }}>
+        <div style={{ background: '#fff', borderRadius: '4px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+          
+          <div style={{ background: '#1a1a1a', padding: '40px 40px 32px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Image src="/logo.png" alt="Schreibwaren Nipps" width={180} height={80} style={{ objectFit: 'contain' }} />
+            <div style={{ marginTop: '16px', color: '#c9a84c', fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', fontWeight: 500 }}>
+              Dienstplan
+            </div>
+          </div>
+
+          <div style={{ padding: '40px' }}>
+            <form onSubmit={handleLogin}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: '#666', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                E-Mail-Adresse
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.de"
+                style={{ width: '100%', padding: '12px 14px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px' }}
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                style={{ width: '100%', padding: '13px', background: loading ? '#999' : '#e8000d', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '14px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', cursor: loading ? 'not-allowed' : 'pointer' }}
+              >
+                {loading ? 'Wird gesendet...' : 'Login-Link anfordern'}
+              </button>
+            </form>
+
+            {message && (
+              <div style={{ marginTop: '20px', padding: '12px 16px', borderRadius: '3px', fontSize: '14px', background: message.includes('Fehler') ? '#fff0f0' : '#f0fff4', color: message.includes('Fehler') ? '#c00' : '#1a7a3a', borderLeft: `3px solid ${message.includes('Fehler') ? '#e8000d' : '#1a7a3a'}` }}>
+                {message}
+              </div>
+            )}
+          </div>
+
         </div>
-
-        <form onSubmit={handleLogin} className="mt-8 space-y-6">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              E-Mail-Adresse
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="name@nipps.de"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            {loading ? 'Wird gesendet...' : 'Magic Link senden'}
-          </button>
-        </form>
-
-        {message && (
-          <div className={`mt-4 p-4 rounded-md ${message.includes('Fehler') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-            {message}
-          </div>
-        )}
+        <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '12px', color: '#999' }}>
+          Schreibwaren Nipps · Dienstplan-App
+        </div>
       </div>
     </div>
   )
