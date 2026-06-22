@@ -67,7 +67,7 @@ export default function LoginPage() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '12px', color: '#bbb' }}>
-          Schreibwaren Nipps · Euskirchen
+          Schreibwaren Nipps
         </div>
 
       </div>
