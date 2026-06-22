@@ -3,15 +3,17 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { format, startOfMonth, addMonths } from 'date-fns'
+import { format, startOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
 
 export default function EmployeePage() {
   const [user, setUser] = useState(null)
   const [employee, setEmployee] = useState(null)
   const [shifts, setShifts] = useState([])
   const [blockers, setBlockers] = useState([])
-  const [newDate, setNewDate] = useState('')
-  const [newReason, setNewReason] = useState('')
+  const [blockerDate, setBlockerDate] = useState('')
+  const [blockerReason, setBlockerReason] = useState('')
+  const [vacationFrom, setVacationFrom] = useState('')
+  const [vacationTo, setVacationTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [confirmed, setConfirmed] = useState(false)
 
@@ -47,11 +49,22 @@ export default function EmployeePage() {
     setLoading(false)
   }
 
-  async function addEntry(type) {
-    if (!newDate || !employee) return
-    await supabase.from('blocker_days').insert({ employee_id: employee.id, date: newDate, reason: newReason || null, type })
-    setNewDate('')
-    setNewReason('')
+  async function addBlocker() {
+    if (!blockerDate || !employee) return
+    await supabase.from('blocker_days').insert({ employee_id: employee.id, date: blockerDate, reason: blockerReason || null, type: 'blocker' })
+    setBlockerDate('')
+    setBlockerReason('')
+    await fetchData(user.email)
+    await fetch('/api/check-blockers', { method: 'POST' })
+  }
+
+  async function addVacation() {
+    if (!vacationFrom || !vacationTo || !employee) return
+    const days = eachDayOfInterval({ start: parseISO(vacationFrom), end: parseISO(vacationTo) })
+    const inserts = days.map(d => ({ employee_id: employee.id, date: format(d, 'yyyy-MM-dd'), type: 'vacation' }))
+    await supabase.from('blocker_days').insert(inserts)
+    setVacationFrom('')
+    setVacationTo('')
     await fetchData(user.email)
     await fetch('/api/check-blockers', { method: 'POST' })
   }
@@ -73,6 +86,12 @@ export default function EmployeePage() {
   const blockersOnly = blockers.filter(b => b.type !== 'vacation')
   const vacationsOnly = blockers.filter(b => b.type === 'vacation')
 
+  const card = { background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
+  const label = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px' }
+  const input = { width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }
+  const heading = { fontSize: '14px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '4px' }
+  const sub = { color: '#999', fontSize: '13px', marginBottom: '20px' }
+
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f0', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ background: '#1a1a1a', padding: '0 24px' }}>
@@ -84,8 +103,9 @@ export default function EmployeePage() {
 
       <main style={{ maxWidth: '680px', margin: '0 auto', padding: '24px' }}>
 
-        <div style={{ background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '16px' }}>Aktueller Monat</h2>
+        <div style={card}>
+          <h2 style={heading}>Meine Schichten</h2>
+          <p style={sub}>Aktueller Monat</p>
           {shifts.length === 0 ? (
             <p style={{ color: '#999', fontSize: '14px' }}>Noch kein Plan veröffentlicht.</p>
           ) : shifts.map(shift => (
@@ -96,9 +116,9 @@ export default function EmployeePage() {
           ))}
         </div>
 
-        <div style={{ background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '4px' }}>Blockertage & Urlaub · {nextMonthLabel}</h2>
-          <p style={{ color: '#999', fontSize: '13px', marginBottom: '20px' }}>Bitte bis zum 24. eintragen.</p>
+        <div style={card}>
+          <h2 style={heading}>Blockertage · {nextMonthLabel}</h2>
+          <p style={sub}>Tage an denen du nicht arbeiten kannst. Bitte bis zum 24. eintragen.</p>
 
           {confirmed ? (
             <div style={{ padding: '12px', background: '#f0fff4', borderLeft: '3px solid #1a7a3a', borderRadius: '3px', marginBottom: '20px', fontSize: '14px', color: '#1a7a3a' }}>
@@ -110,26 +130,21 @@ export default function EmployeePage() {
             </button>
           )}
 
-          <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }} />
-          <select value={newReason} onChange={e => setNewReason(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }}>
-            <option value="">Grund (optional)</option>
+          <label style={label}>Datum</label>
+          <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <label style={label}>Grund (optional)</label>
+          <select value={blockerReason} onChange={e => setBlockerReason(e.target.value)} style={input}>
+            <option value="">Bitte wählen</option>
             <option value="Arzttermin">Arzttermin</option>
             <option value="Kinderbetreuung">Kinderbetreuung</option>
             <option value="Privat">Privat</option>
           </select>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-            <button onClick={() => addEntry('blocker')} style={{ padding: '12px', background: '#e8000d', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-              Blockertag eintragen
-            </button>
-            <button onClick={() => addEntry('vacation')} style={{ padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-              Urlaubstag eintragen
-            </button>
-          </div>
+          <button onClick={addBlocker} style={{ width: '100%', padding: '12px', background: '#e8000d', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+            Blockertag eintragen
+          </button>
 
           {blockersOnly.length > 0 && (
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#999', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>Blockertage</div>
+            <div style={{ marginTop: '20px' }}>
               {blockersOnly.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
                   <span>{format(new Date(b.date), 'dd.MM.yyyy')}{b.reason && <span style={{ color: '#999', marginLeft: '8px' }}>({b.reason})</span>}</span>
@@ -138,13 +153,25 @@ export default function EmployeePage() {
               ))}
             </div>
           )}
+        </div>
+
+        <div style={card}>
+          <h2 style={heading}>Urlaub · {nextMonthLabel}</h2>
+          <p style={sub}>Urlaubszeitraum eintragen. Alle Tage werden automatisch als Urlaub gesetzt und als Arbeitsstunden angerechnet.</p>
+
+          <label style={label}>Von</label>
+          <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <label style={label}>Bis</label>
+          <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <button onClick={addVacation} style={{ width: '100%', padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+            Urlaub eintragen
+          </button>
 
           {vacationsOnly.length > 0 && (
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#999', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>Urlaubstage</div>
+            <div style={{ marginTop: '20px' }}>
               {vacationsOnly.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
-                  <span style={{ color: '#c9a84c' }}>{format(new Date(b.date), 'dd.MM.yyyy')}</span>
+                  <span style={{ color: '#1a1a1a' }}>{format(new Date(b.date), 'dd.MM.yyyy')}</span>
                   <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>
                 </div>
               ))}
