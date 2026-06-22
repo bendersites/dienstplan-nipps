@@ -26,17 +26,18 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ width: '100%', maxWidth: '400px', padding: '0 24px' }}>
+    <div style={{ minHeight: '100vh', background: '#f7f7f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ width: '100%', maxWidth: '420px', padding: '0 24px', textAlign: 'center' }}>
 
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <Image src="/logo.png" alt="Schreibwaren Nipps" width={220} height={100} style={{ objectFit: 'contain' }} />
-          <div style={{ marginTop: '12px', fontSize: '12px', letterSpacing: '3px', textTransform: 'uppercase', color: '#999', fontWeight: 500 }}>
-            Dienstplan
-          </div>
+        <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'center' }}>
+          <Image src="/logo.png" alt="Schreibwaren Nipps" width={260} height={120} style={{ objectFit: 'contain' }} />
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '4px', padding: '32px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '4px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '40px' }}>
+          Dienstplan
+        </div>
+
+        <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '4px', padding: '32px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', textAlign: 'left' }}>
           <form onSubmit={handleLogin}>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px' }}>
               E-Mail-Adresse
