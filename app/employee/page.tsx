@@ -21,14 +21,16 @@ export default function EmployeePage() {
   const nextMonthLabel = format(addMonths(startOfMonth(new Date()), 1), 'MMMM yyyy')
 
   useEffect(() => {
-    supabase.auth.onAuthStateChange(async (event, session) => {
+    async function init() {
+      const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
         setUser(session.user)
         await fetchData(session.user.email)
       } else {
         window.location.href = '/login'
       }
-    })
+    }
+    init()
   }, [])
 
   async function fetchData(email) {
@@ -88,7 +90,7 @@ export default function EmployeePage() {
 
   const card = { background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
   const label = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px' }
-  const input = { width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }
+  const inp = { width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }
   const heading = { fontSize: '14px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '4px' }
   const sub = { color: '#999', fontSize: '13px', marginBottom: '20px' }
 
@@ -131,9 +133,9 @@ export default function EmployeePage() {
           )}
 
           <label style={label}>Datum</label>
-          <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
           <label style={label}>Grund (optional)</label>
-          <select value={blockerReason} onChange={e => setBlockerReason(e.target.value)} style={input}>
+          <select value={blockerReason} onChange={e => setBlockerReason(e.target.value)} style={inp}>
             <option value="">Bitte wählen</option>
             <option value="Arzttermin">Arzttermin</option>
             <option value="Kinderbetreuung">Kinderbetreuung</option>
@@ -160,9 +162,9 @@ export default function EmployeePage() {
           <p style={sub}>Urlaubszeitraum eintragen. Alle Tage werden automatisch als Urlaub gesetzt und als Arbeitsstunden angerechnet.</p>
 
           <label style={label}>Von</label>
-          <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
           <label style={label}>Bis</label>
-          <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={input} />
+          <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={inp} />
           <button onClick={addVacation} style={{ width: '100%', padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
             Urlaub eintragen
           </button>
