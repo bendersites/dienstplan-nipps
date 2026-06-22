@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabase'
 import { format, startOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
 
 export default function EmployeePage() {
-  const [user, setUser] = useState(null)
   const [employee, setEmployee] = useState(null)
   const [shifts, setShifts] = useState([])
   const [blockers, setBlockers] = useState([])
@@ -21,21 +20,14 @@ export default function EmployeePage() {
   const nextMonthLabel = format(addMonths(startOfMonth(new Date()), 1), 'MMMM yyyy')
 
   useEffect(() => {
-    async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        setUser(session.user)
-        await fetchData(session.user.email)
-      } else {
-        window.location.href = '/login'
-      }
-    }
-    init()
+    const email = localStorage.getItem('nipps_email')
+    if (!email) { window.location.href = '/login'; return }
+    fetchData(email)
   }, [])
 
   async function fetchData(email) {
     const { data: emp } = await supabase.from('employees').select('*').eq('email', email).single()
-    if (!emp) { setLoading(false); return }
+    if (!emp) { window.location.href = '/login'; return }
     setEmployee(emp)
     setConfirmed(emp.blocker_confirmed && emp.blocker_confirmed_month === nextMonth)
 
@@ -56,7 +48,7 @@ export default function EmployeePage() {
     await supabase.from('blocker_days').insert({ employee_id: employee.id, date: blockerDate, reason: blockerReason || null, type: 'blocker' })
     setBlockerDate('')
     setBlockerReason('')
-    await fetchData(user.email)
+    await fetchData(employee.email)
     await fetch('/api/check-blockers', { method: 'POST' })
   }
 
@@ -67,13 +59,13 @@ export default function EmployeePage() {
     await supabase.from('blocker_days').insert(inserts)
     setVacationFrom('')
     setVacationTo('')
-    await fetchData(user.email)
+    await fetchData(employee.email)
     await fetch('/api/check-blockers', { method: 'POST' })
   }
 
   async function removeEntry(id) {
     await supabase.from('blocker_days').delete().eq('id', id)
-    if (user) await fetchData(user.email)
+    await fetchData(employee.email)
   }
 
   async function confirmNoBlockers() {
@@ -98,8 +90,8 @@ export default function EmployeePage() {
     <div style={{ minHeight: '100vh', background: '#f5f5f0', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ background: '#1a1a1a', padding: '0 24px' }}>
         <div style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '56px' }}>
-          <span style={{ color: '#c9a84c', fontSize: '13px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase' }}>Dienstplan</span>
-          <button onClick={() => supabase.auth.signOut().then(() => window.location.href = '/login')} style={{ background: 'none', border: 'none', color: '#999', fontSize: '13px', cursor: 'pointer' }}>Abmelden</button>
+          <span style={{ color: '#c9a84c', fontSize: '13px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase' }}>Dienstplan · {employee?.name}</span>
+          <button onClick={() => { localStorage.removeItem('nipps_email'); window.location.href = '/login' }} style={{ background: 'none', border: 'none', color: '#999', fontSize: '13px', cursor: 'pointer' }}>Abmelden</button>
         </div>
       </header>
 
