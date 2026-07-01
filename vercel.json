@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/notify-peter-open-blockers",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}
