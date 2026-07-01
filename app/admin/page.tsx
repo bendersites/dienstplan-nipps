@@ -48,6 +48,7 @@ export default function AdminPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [employees, setEmployees] = useState<Employee[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [blockers, setBlockers] = useState<{ employee_id: string; date: string; type: string }[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -75,6 +76,16 @@ export default function AdminPage() {
     setEmployees(empData || [])
 
     const monthStr = format(monthStart, 'yyyy-MM-dd')
+    const nextMonthStr = format(addMonths(monthStart, 1), 'yyyy-MM-dd')
+
+    const { data: blockerData } = await supabase
+      .from('blocker_days')
+      .select('employee_id, date, type')
+      .gte('date', monthStr)
+      .lt('date', nextMonthStr)
+
+    setBlockers(blockerData || [])
+
     let { data: schedData } = await (supabase as any)
       .from('schedules')
       .select('*')
@@ -181,9 +192,14 @@ export default function AdminPage() {
   }
 
   function getAvailableEmployees(shift: Shift): Employee[] {
-    // Manuelle Bearbeitung: keine Tages-Sonderregeln, keine "schon heute zugeteilt"-Sperre.
-    // Peter soll frei überschreiben können. Einzige Einschränkung: Qualifikation für den Bereich.
-    return employees.filter(e => e.qualification === 'both' || e.qualification === shift.area)
+    // Manuelle Bearbeitung: keine Tages-Sonderregeln mehr, Peter kann frei überschreiben.
+    // Einschränkung bleibt: Qualifikation für den Bereich + kein Urlaub/Blocker an dem Tag.
+    return employees.filter(e => {
+      if (e.qualification !== 'both' && e.qualification !== shift.area) return false
+      const isBlocked = blockers.some(b => b.employee_id === e.id && b.date === shift.date)
+      if (isBlocked) return false
+      return true
+    })
   }
 
   const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1))
@@ -376,10 +392,12 @@ export default function AdminPage() {
         <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
           {employees.map(emp => {
             const empShifts = shifts.filter(s => s.employee_id === emp.id)
-            const hours = empShifts.reduce((acc, s) => {
+            const shiftHours = empShifts.reduce((acc, s) => {
               if (s.shift_type === 'saturday') return acc + 6
               return acc + 5
             }, 0)
+            const vacationDays = blockers.filter(b => b.employee_id === emp.id && b.type === 'vacation').length
+            const hours = shiftHours + (vacationDays * 5)
             
             return (
               <div key={emp.id} className="bg-white p-4 rounded-lg shadow">
