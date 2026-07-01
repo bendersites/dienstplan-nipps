@@ -181,30 +181,9 @@ export default function AdminPage() {
   }
 
   function getAvailableEmployees(shift: Shift): Employee[] {
-    const dayOfWeek = new Date(shift.date).getDay()
-    const shiftType = shift.shift_type
-    
-    return employees.filter(e => {
-      // Qualification check
-      if (e.qualification !== 'both' && e.qualification !== shift.area) return false
-      
-      // Special rules
-      if (e.name === 'Cindy') {
-        if (dayOfWeek !== 5 || shiftType !== 'morning' || shift.area !== 'shop') return false
-      }
-      if (e.name === 'Marika') {
-        if ((dayOfWeek !== 3 && dayOfWeek !== 5) || shift.area !== 'shop') return false
-        if (shiftType === 'afternoon') return false
-      }
-      if (e.name === 'Anni' && shift.area !== 'post') return false
-      if (e.name === 'Ines' && shift.area !== 'post') return false
-      if (e.name === 'Peter') {
-        if (dayOfWeek === 1 && shiftType === 'afternoon') return false
-        if (dayOfWeek === 4 && shiftType === 'afternoon') return false
-      }
-      
-      return true
-    })
+    // Manuelle Bearbeitung: keine Tages-Sonderregeln, keine "schon heute zugeteilt"-Sperre.
+    // Peter soll frei überschreiben können. Einzige Einschränkung: Qualifikation für den Bereich.
+    return employees.filter(e => e.qualification === 'both' || e.qualification === shift.area)
   }
 
   const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1))
