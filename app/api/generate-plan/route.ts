@@ -2,9 +2,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 
+// Harte Stundenkappen für den allgemeinen Verteil-Pool.
+// Gudrun/Ines: Kappe = Sollstunden (kein Überschreiten).
+// Belli: einzige Ausnahme, darf bis 150 zum Lückenfüllen.
+// Peter: kein Deckel, reiner Springer.
+// Cindy/Marika/Anni tauchen hier nicht auf - die laufen nie über den allgemeinen Pool.
 const MAX_HOURS = {
-  'Cindy': 25, 'Anni': 40, 'Marika': 40, 'Ines': 80,
-  'Belli': 135, 'Gudrun': 130, 'Peter': 70
+  'Ines': 80, 'Belli': 150, 'Gudrun': 120, 'Peter': 9999
+}
+
+// Wer darf überhaupt in den allgemeinen Lückenfüll-Pool (nicht-fixe Slots)
+const GENERAL_POOL_NAMES = ['Gudrun', 'Belli', 'Ines']
+
+// Fixe Slots: Tag -> Schicht -> Bereich -> Name
+// dayOfWeek: 1=Montag ... 5=Freitag
+const FIXED_SLOTS = {
+  1: { morning: { shop: 'Belli', post: 'Anni' }, afternoon: { shop: 'Gudrun', post: 'Ines' } },
+  2: { morning: { shop: 'Gudrun', post: 'Ines' }, afternoon: { post: 'Belli' } },
+  3: { morning: { shop: 'Gudrun' }, afternoon: { shop: 'Marika', post: 'Belli' } },
+  4: { morning: {}, afternoon: { shop: 'Gudrun', post: 'Ines' } },
+  5: { morning: { shop: 'Cindy', post: 'Belli' }, afternoon: { shop: 'Marika', post: 'Gudrun' } },
 }
 
 export async function POST(request) {
@@ -37,12 +54,10 @@ export async function POST(request) {
     const employeeHours = {}
     const assignedToday = {}
     const saturdayCount = {}
-    const lastSaturdayAssigned = {}
 
     employees.forEach(e => {
       employeeHours[e.id] = vacationHours[e.id] || 0
       saturdayCount[e.id] = 0
-      lastSaturdayAssigned[e.id] = null
     })
 
     const isBlocked = (empId, dateStr) => blockerSet.has(`${empId}|${dateStr}`)
@@ -59,7 +74,6 @@ export async function POST(request) {
       assignedToday[dateStr].add(emp.id)
       if (shiftType === 'saturday') {
         saturdayCount[emp.id] = (saturdayCount[emp.id] || 0) + 1
-        lastSaturdayAssigned[emp.id] = dateStr
       }
     }
 
@@ -67,40 +81,44 @@ export async function POST(request) {
       assignments.push({ date: dateStr, shift_type: shiftType, area, employee_id: null, is_open: true })
     }
 
-    // Samstag-Penalty: wer zuletzt Samstag hatte bekommt Abzug
-    const getSaturdayPenalty = (emp, dateStr) => {
-      if (!lastSaturdayAssigned[emp.id]) return 0
-      const last = new Date(lastSaturdayAssigned[emp.id])
-      const current = new Date(dateStr)
-      const diffWeeks = (current - last) / (7 * 24 * 60 * 60 * 1000)
-      if (diffWeeks <= 1) return -8000 // direkt letzten Samstag → stark bestrafen
-      if (saturdayCount[emp.id] > 2) return -3000
-      return 0
-    }
-
     const canWork = (emp, dateStr, shiftType, area) => {
       if (isBlocked(emp.id, dateStr)) return false
       if (isAlreadyAssignedToday(emp.id, dateStr)) return false
       if (emp.qualification !== 'both' && emp.qualification !== area) return false
       const dayOfWeek = new Date(dateStr).getDay()
-      const dayMap = {1:'mon', 2:'tue', 3:'wed', 4:'thu', 5:'fri', 6:'sat'}
+      const dayMap = { 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' }
       const dayKey = dayMap[dayOfWeek]
       const availKey = shiftType === 'saturday' ? 'sat_morning' : `${dayKey}_${shiftType === 'morning' ? 'morning' : 'afternoon'}`
       if (emp.availability && !emp.availability[availKey]) return false
+      // Peter: Montag und Donnerstag nachmittags nicht möglich
+      if (emp.name === 'Peter' && shiftType === 'afternoon' && (dayOfWeek === 1 || dayOfWeek === 4)) return false
+      // Samstag: max 2 pro Monat, hart
+      if (shiftType === 'saturday' && saturdayCount[emp.id] >= 2) return false
       return true
     }
 
-    const scoreCandidate = (emp, dateStr, shiftType, area, isZigaretteDay) => {
+    const scoreCandidate = (emp) => {
       let score = 0
-      const target = emp.target_hours
+      const target = getMaxHours(emp) === MAX_HOURS['Belli'] && emp.name === 'Belli' ? emp.target_hours : getMaxHours(emp)
       const remaining = target - employeeHours[emp.id]
-      const currentHours = employeeHours[emp.id]
       if (remaining > 0) score += remaining * 50
-      if (currentHours >= target && target > 0) score -= 5000
-      if (emp.name === 'Peter') score -= 500
-      if (isZigaretteDay && emp.name === 'Belli') score += 500
-      if (shiftType === 'saturday') score += getSaturdayPenalty(emp, dateStr)
+      if (employeeHours[emp.id] >= target) score -= 5000
       return score
+    }
+
+    // Zigarettenregel: Mo/Do vormittags Laden nur Belli oder Peter
+    const isZigaretteSlot = (dayOfWeek, shiftType, area) =>
+      (dayOfWeek === 1 || dayOfWeek === 4) && shiftType === 'morning' && area === 'shop'
+
+    const tryFixedAssignment = (dateStr, dayOfWeek, shiftType, area) => {
+      const name = FIXED_SLOTS[dayOfWeek]?.[shiftType]?.[area]
+      if (!name) return false
+      const emp = getEmployeeByName(name)
+      if (!emp) return false
+      if (isBlocked(emp.id, dateStr)) return false
+      if (isAlreadyAssignedToday(emp.id, dateStr)) return false
+      addAssignment(dateStr, shiftType, area, emp)
+      return true
     }
 
     for (let day = 1; day <= daysInMonth; day++) {
@@ -115,76 +133,47 @@ export async function POST(request) {
 
       for (const shiftType of shiftTypes) {
         for (const area of areas) {
-          let assigned = false
-
-          // Cindy: Freitag Vormittag Laden
-          if (dayOfWeek === 5 && shiftType === 'morning' && area === 'shop') {
-            const cindy = getEmployeeByName('Cindy')
-            if (cindy && !isBlocked(cindy.id, dateStr) && !hasReachedMaxHours(cindy)) {
-              addAssignment(dateStr, shiftType, area, cindy); assigned = true
-            }
-          }
-
-          // Anni: Montag Vormittag Post
-          if (dayOfWeek === 1 && shiftType === 'morning' && area === 'post') {
-            const anni = getEmployeeByName('Anni')
-            if (anni && !isBlocked(anni.id, dateStr) && !hasReachedMaxHours(anni)) {
-              addAssignment(dateStr, shiftType, area, anni); assigned = true
-            }
-          }
-
-          // Peter: Montag Vormittag Laden
-          if (dayOfWeek === 1 && shiftType === 'morning' && area === 'shop') {
-            const peter = getEmployeeByName('Peter')
-            if (peter && !isBlocked(peter.id, dateStr) && !hasReachedMaxHours(peter) && !isAlreadyAssignedToday(peter.id, dateStr)) {
-              addAssignment(dateStr, shiftType, area, peter); assigned = true
-            }
-          }
-
-          // Marika: Mittwoch + Freitag Nachmittag Laden
-          if ((dayOfWeek === 3 || dayOfWeek === 5) && shiftType === 'afternoon' && area === 'shop') {
-            const marika = getEmployeeByName('Marika')
-            if (marika && !isBlocked(marika.id, dateStr) && !hasReachedMaxHours(marika) && !isAlreadyAssignedToday(marika.id, dateStr)) {
-              addAssignment(dateStr, shiftType, area, marika); assigned = true
-            }
-          }
-
-          // Peter: Donnerstag Vormittag Laden
-          if (dayOfWeek === 4 && shiftType === 'morning' && area === 'shop') {
-            const peter = getEmployeeByName('Peter')
-            if (peter && !isBlocked(peter.id, dateStr) && !hasReachedMaxHours(peter) && !isAlreadyAssignedToday(peter.id, dateStr)) {
-              addAssignment(dateStr, shiftType, area, peter); assigned = true
-            }
-          }
-
-          if (assigned) continue
+          // 1. Fixer Slot (Mo-Fr)
+          if (!isSat && tryFixedAssignment(dateStr, dayOfWeek, shiftType, area)) continue
 
           const alreadyAssigned = assignments.some(a => a.date === dateStr && a.shift_type === shiftType && a.area === area && !a.is_open)
           if (alreadyAssigned) continue
 
-          const isZigaretteDay = (dayOfWeek === 1 || dayOfWeek === 4) && shiftType === 'morning' && area === 'shop'
+          // 2. Zigarettenslot ohne fixe Person (Do vorm. Laden, oder Mo blockiert): nur Belli/Peter
+          if (!isSat && isZigaretteSlot(dayOfWeek, shiftType, area)) {
+            const belli = getEmployeeByName('Belli')
+            const peter = getEmployeeByName('Peter')
+            if (belli && canWork(belli, dateStr, shiftType, area) && !hasReachedMaxHours(belli)) {
+              addAssignment(dateStr, shiftType, area, belli); continue
+            }
+            if (peter && canWork(peter, dateStr, shiftType, area)) {
+              addAssignment(dateStr, shiftType, area, peter); continue
+            }
+            addOpen(dateStr, shiftType, area); continue
+          }
 
-          let candidates = employees
+          // 3. Allgemeiner Pool: Gudrun, Belli, Ines
+          const candidates = employees
+            .filter(e => GENERAL_POOL_NAMES.includes(e.name))
             .filter(e => canWork(e, dateStr, shiftType, area))
             .filter(e => !hasReachedMaxHours(e))
-            .sort((a, b) => scoreCandidate(b, dateStr, shiftType, area, isZigaretteDay) - scoreCandidate(a, dateStr, shiftType, area, isZigaretteDay))
-
-          if (isZigaretteDay) {
-            const bellis = candidates.filter(e => e.name === 'Belli')
-            if (bellis.length > 0) candidates = bellis
-          }
+            .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
 
           const selected = candidates[0]
           if (selected) {
             addAssignment(dateStr, shiftType, area, selected)
-          } else {
-            const peter = getEmployeeByName('Peter')
-            if (peter && canWork(peter, dateStr, shiftType, area) && !hasReachedMaxHours(peter)) {
-              addAssignment(dateStr, shiftType, area, peter)
-            } else {
-              addOpen(dateStr, shiftType, area)
-            }
+            continue
           }
+
+          // 4. Fallback: Peter
+          const peter = getEmployeeByName('Peter')
+          if (peter && canWork(peter, dateStr, shiftType, area)) {
+            addAssignment(dateStr, shiftType, area, peter)
+            continue
+          }
+
+          // 5. Offen
+          addOpen(dateStr, shiftType, area)
         }
       }
     }
