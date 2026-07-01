@@ -52,6 +52,26 @@ export async function POST(request: NextRequest) {
       .eq('name', 'Peter')
       .single()
 
+    // Schon mal "alle fertig" für diesen Monat gemeldet? Dann ist das hier eine
+    // nachträgliche Änderung (jemand hat nach der ersten Meldung nochmal was
+    // eingetragen/geändert) - Peter kriegt eine andere, kürzere Mail statt der
+    // vollen "Alle fertig"-Meldung nochmal.
+    const { data: notification } = await supabase
+      .from('blocker_notifications')
+      .select('*')
+      .eq('month', nextMonth)
+      .single()
+
+    if (peter && notification?.all_confirmed_sent_at) {
+      await resend.emails.send({
+        from: 'onboarding@resend.dev',
+        to: peter.email,
+        subject: 'Änderung an Blockertagen – ' + nextMonthLabel,
+        html: '<h2>Eine Mitarbeiterin hat ihre Blockertage/Urlaub für ' + nextMonthLabel + ' nachträglich geändert.</h2><h3>Aktuelle Übersicht:</h3>' + blockerHtml + '<p>Falls du den Plan schon generiert hast, prüf ob er noch passt.</p><p><a href="' + appUrl + '/admin" style="background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;">Zum Plan</a></p>'
+      })
+      return NextResponse.json({ allConfirmed: true, changeNotified: true })
+    }
+
     if (peter) {
       await resend.emails.send({
         from: 'onboarding@resend.dev',
@@ -61,7 +81,11 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ allConfirmed: true })
+    await supabase
+      .from('blocker_notifications')
+      .upsert({ month: nextMonth, all_confirmed_sent_at: new Date().toISOString() })
+
+    return NextResponse.json({ allConfirmed: true, firstNotification: true })
   } catch (error) {
     console.error('Check error:', error)
     return NextResponse.json({ error: 'Failed' }, { status: 500 })

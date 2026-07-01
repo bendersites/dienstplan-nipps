@@ -6,6 +6,8 @@ import Image from 'next/image'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [needsPassword, setNeedsPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -17,13 +19,19 @@ export default function LoginPage() {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify(needsPassword ? { email, password } : { email })
     })
     const data = await res.json()
 
     if (data.success) {
       localStorage.setItem('nipps_email', email)
+      if (data.role === 'admin') {
+        localStorage.setItem('nipps_admin_authed', 'true')
+      }
       window.location.href = data.role === 'admin' ? '/admin' : '/employee'
+    } else if (data.needsPassword) {
+      setNeedsPassword(true)
+      if (data.error) setError(data.error)
     } else {
       setError('E-Mail-Adresse nicht gefunden.')
     }
@@ -47,11 +55,28 @@ export default function LoginPage() {
             <input
               type="email"
               required
+              disabled={needsPassword}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@example.de"
-              style={{ width: '100%', padding: '12px 14px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px', color: '#1a1a1a' }}
+              style={{ width: '100%', padding: '12px 14px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px', color: '#1a1a1a', background: needsPassword ? '#f5f5f5' : '#fff' }}
             />
+            {needsPassword && (
+              <>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Passwort
+                </label>
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Passwort"
+                  style={{ width: '100%', padding: '12px 14px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '15px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px', color: '#1a1a1a' }}
+                />
+              </>
+            )}
             <button
               type="submit"
               disabled={loading}

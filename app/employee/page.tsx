@@ -46,6 +46,9 @@ export default function EmployeePage() {
   async function addBlocker() {
     if (!blockerDate || !employee) return
     await supabase.from('blocker_days').insert({ employee_id: employee.id, date: blockerDate, reason: blockerReason || null, type: 'blocker' })
+    // Eintragen zählt genauso als "erledigt" wie der Keine-Blockertage-Button,
+    // sonst gilt "alle fertig" nie für Leute die tatsächlich was eintragen.
+    await supabase.from('employees').update({ blocker_confirmed: true, blocker_confirmed_month: nextMonth }).eq('id', employee.id)
     setBlockerDate('')
     setBlockerReason('')
     await fetchData(employee.email)
@@ -57,6 +60,7 @@ export default function EmployeePage() {
     const days = eachDayOfInterval({ start: parseISO(vacationFrom), end: parseISO(vacationTo) })
     const inserts = days.map(d => ({ employee_id: employee.id, date: format(d, 'yyyy-MM-dd'), type: 'vacation' }))
     await supabase.from('blocker_days').insert(inserts)
+    await supabase.from('employees').update({ blocker_confirmed: true, blocker_confirmed_month: nextMonth }).eq('id', employee.id)
     setVacationFrom('')
     setVacationTo('')
     await fetchData(employee.email)
