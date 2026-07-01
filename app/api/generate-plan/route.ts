@@ -20,7 +20,7 @@ const FIXED_SLOTS = {
   1: { morning: { shop: 'Belli', post: 'Anni' }, afternoon: { shop: 'Gudrun', post: 'Ines' } },
   2: { morning: { shop: 'Gudrun', post: 'Ines' }, afternoon: { post: 'Belli' } },
   3: { morning: { shop: 'Gudrun' }, afternoon: { shop: 'Marika', post: 'Belli' } },
-  4: { morning: {}, afternoon: { shop: 'Gudrun', post: 'Ines' } },
+  4: { morning: { post: 'Belli' }, afternoon: { shop: 'Gudrun', post: 'Ines' } },
   5: { morning: { shop: 'Cindy', post: 'Belli' }, afternoon: { shop: 'Marika', post: 'Gudrun' } },
 }
 
@@ -63,7 +63,10 @@ export async function POST(request) {
     const isBlocked = (empId, dateStr) => blockerSet.has(`${empId}|${dateStr}`)
     const getShiftDuration = (shiftType) => shiftType === 'saturday' ? 6 : 5
     const getMaxHours = (emp) => MAX_HOURS[emp.name] !== undefined ? MAX_HOURS[emp.name] : emp.target_hours
-    const hasReachedMaxHours = (emp) => employeeHours[emp.id] >= getMaxHours(emp)
+    // Schichtdauer-bewusst: prüft VOR der Zuweisung ob diese konkrete Schicht die Kappe sprengen würde.
+    // Wichtig wegen Samstag = 6h statt 5h - reiner ">=" Check greift da zu spät.
+    const wouldExceedMax = (emp, shiftType) =>
+      MAX_HOURS[emp.name] !== undefined && (employeeHours[emp.id] + getShiftDuration(shiftType) > MAX_HOURS[emp.name])
     const isAlreadyAssignedToday = (empId, dateStr) => assignedToday[dateStr]?.has(empId) || false
     const getEmployeeByName = (name) => employees.find(e => e.name === name)
 
@@ -119,9 +122,7 @@ export async function POST(request) {
       if (isAlreadyAssignedToday(emp.id, dateStr)) return false
       // Hartes Limit auch beim fixen Slot: bei 5x-Monaten (z.B. 5 Dienstage) darf
       // auch der Fixslot die Kappe nicht sprengen. Slot fällt dann in den offenen Pool.
-      if (MAX_HOURS[emp.name] !== undefined) {
-        if (employeeHours[emp.id] + getShiftDuration(shiftType) > MAX_HOURS[emp.name]) return false
-      }
+      if (wouldExceedMax(emp, shiftType)) return false
       addAssignment(dateStr, shiftType, area, emp)
       return true
     }
@@ -136,11 +137,20 @@ export async function POST(request) {
       const shiftTypes = isSat ? ['saturday'] : ['morning', 'afternoon']
       const areas = ['shop', 'post']
 
+      // PASS 1: alle fixen Slots des Tages zuerst (über beide Schichten/Bereiche hinweg).
+      // Wichtig: verhindert dass eine offene Schicht jemanden "verbraucht", bevor die
+      // eigene Fixschicht derselben Person am selben Tag drankommt.
+      if (!isSat) {
+        for (const shiftType of shiftTypes) {
+          for (const area of areas) {
+            tryFixedAssignment(dateStr, dayOfWeek, shiftType, area)
+          }
+        }
+      }
+
+      // PASS 2: alles was noch offen ist
       for (const shiftType of shiftTypes) {
         for (const area of areas) {
-          // 1. Fixer Slot (Mo-Fr)
-          if (!isSat && tryFixedAssignment(dateStr, dayOfWeek, shiftType, area)) continue
-
           const alreadyAssigned = assignments.some(a => a.date === dateStr && a.shift_type === shiftType && a.area === area && !a.is_open)
           if (alreadyAssigned) continue
 
@@ -148,7 +158,7 @@ export async function POST(request) {
           if (!isSat && isZigaretteSlot(dayOfWeek, shiftType, area)) {
             const belli = getEmployeeByName('Belli')
             const peter = getEmployeeByName('Peter')
-            if (belli && canWork(belli, dateStr, shiftType, area) && !hasReachedMaxHours(belli)) {
+            if (belli && canWork(belli, dateStr, shiftType, area) && !wouldExceedMax(belli, shiftType)) {
               addAssignment(dateStr, shiftType, area, belli); continue
             }
             if (peter && canWork(peter, dateStr, shiftType, area)) {
@@ -161,7 +171,7 @@ export async function POST(request) {
           const candidates = employees
             .filter(e => GENERAL_POOL_NAMES.includes(e.name))
             .filter(e => canWork(e, dateStr, shiftType, area))
-            .filter(e => !hasReachedMaxHours(e))
+            .filter(e => !wouldExceedMax(e, shiftType))
             .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
 
           const selected = candidates[0]
