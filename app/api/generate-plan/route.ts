@@ -117,6 +117,11 @@ export async function POST(request) {
       if (!emp) return false
       if (isBlocked(emp.id, dateStr)) return false
       if (isAlreadyAssignedToday(emp.id, dateStr)) return false
+      // Hartes Limit auch beim fixen Slot: bei 5x-Monaten (z.B. 5 Dienstage) darf
+      // auch der Fixslot die Kappe nicht sprengen. Slot fällt dann in den offenen Pool.
+      if (MAX_HOURS[emp.name] !== undefined) {
+        if (employeeHours[emp.id] + getShiftDuration(shiftType) > MAX_HOURS[emp.name]) return false
+      }
       addAssignment(dateStr, shiftType, area, emp)
       return true
     }
