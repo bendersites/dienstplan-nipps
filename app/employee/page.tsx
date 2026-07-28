@@ -11,6 +11,7 @@ export default function EmployeePage() {
   const [blockers, setBlockers] = useState([])
   const [blockerDate, setBlockerDate] = useState('')
   const [blockerReason, setBlockerReason] = useState('')
+  const [blockerShift, setBlockerShift] = useState('')
   const [vacationFrom, setVacationFrom] = useState('')
   const [vacationTo, setVacationTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -43,23 +44,44 @@ export default function EmployeePage() {
     setLoading(false)
   }
 
+  // Samstag kennt nur eine Schicht - dort ist Halbtags sinnlos.
+  const blockerDateIsSaturday = blockerDate ? new Date(blockerDate + 'T12:00:00').getDay() === 6 : false
+
   async function addBlocker() {
     if (!blockerDate || !employee) return
-    await supabase.from('blocker_days').insert({ employee_id: employee.id, date: blockerDate, reason: blockerReason || null, type: 'blocker' })
+    const shiftType = blockerDateIsSaturday ? null : (blockerShift || null)
+    // Doppelte Eintraege verhindern
+    const dup = blockers.some(b => b.date === blockerDate && b.type === 'blocker' && (b.shift_type || null) === shiftType)
+    if (dup) { setBlockerDate(''); setBlockerReason(''); setBlockerShift(''); return }
+    await supabase.from('blocker_days').insert({ employee_id: employee.id, date: blockerDate, reason: blockerReason || null, type: 'blocker', shift_type: shiftType })
     // Eintragen zählt genauso als "erledigt" wie der Keine-Blockertage-Button,
     // sonst gilt "alle fertig" nie für Leute die tatsächlich was eintragen.
     await supabase.from('employees').update({ blocker_confirmed: true, blocker_confirmed_month: nextMonth }).eq('id', employee.id)
     setBlockerDate('')
     setBlockerReason('')
+    setBlockerShift('')
     await fetchData(employee.email)
     await fetch('/api/check-blockers', { method: 'POST' })
   }
 
   async function addVacation() {
     if (!vacationFrom || !vacationTo || !employee) return
+    if (vacationTo < vacationFrom) return
+
     const days = eachDayOfInterval({ start: parseISO(vacationFrom), end: parseISO(vacationTo) })
-    const inserts = days.map(d => ({ employee_id: employee.id, date: format(d, 'yyyy-MM-dd'), type: 'vacation' }))
-    await supabase.from('blocker_days').insert(inserts)
+    // Tage die schon als Urlaub drinstehen werden uebersprungen.
+    // Ohne das entstehen bei zweimaligem Eintragen doppelte Zeilen und
+    // der Generator rechnet die Stunden doppelt an.
+    const existing = new Set(blockers.filter(b => b.type === 'vacation').map(b => b.date))
+    const inserts = days
+      .map(d => format(d, 'yyyy-MM-dd'))
+      .filter(d => !existing.has(d))
+      .map(d => ({ employee_id: employee.id, date: d, type: 'vacation', shift_type: null }))
+
+    if (inserts.length) {
+      const { error } = await supabase.from('blocker_days').insert(inserts)
+      if (error) { alert('Urlaub konnte nicht gespeichert werden: ' + error.message); return }
+    }
     await supabase.from('employees').update({ blocker_confirmed: true, blocker_confirmed_month: nextMonth }).eq('id', employee.id)
     setVacationFrom('')
     setVacationTo('')
@@ -130,6 +152,18 @@ export default function EmployeePage() {
 
           <label style={label}>Datum</label>
           <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
+
+          <label style={label}>Zeitraum</label>
+          {blockerDateIsSaturday ? (
+            <div style={{ ...inp, color: '#999', background: '#fafafa' }}>Samstag · nur ganzer Tag möglich</div>
+          ) : (
+            <select value={blockerShift} onChange={e => setBlockerShift(e.target.value)} style={inp}>
+              <option value="">Ganzer Tag</option>
+              <option value="morning">Nur Vormittag (09–14)</option>
+              <option value="afternoon">Nur Nachmittag (14–19)</option>
+            </select>
+          )}
+
           <label style={label}>Grund (optional)</label>
           <select value={blockerReason} onChange={e => setBlockerReason(e.target.value)} style={inp}>
             <option value="">Bitte wählen</option>
@@ -145,7 +179,13 @@ export default function EmployeePage() {
             <div style={{ marginTop: '20px' }}>
               {blockersOnly.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
-                  <span>{format(new Date(b.date), 'dd.MM.yyyy')}{b.reason && <span style={{ color: '#999', marginLeft: '8px' }}>({b.reason})</span>}</span>
+                  <span>
+                    {format(new Date(b.date), 'dd.MM.yyyy')}
+                    <span style={{ color: '#666', marginLeft: '8px' }}>
+                      {b.shift_type === 'morning' ? 'Vormittag' : b.shift_type === 'afternoon' ? 'Nachmittag' : 'ganzer Tag'}
+                    </span>
+                    {b.reason && <span style={{ color: '#999', marginLeft: '8px' }}>({b.reason})</span>}
+                  </span>
                   <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>
                 </div>
               ))}
@@ -155,7 +195,7 @@ export default function EmployeePage() {
 
         <div style={card}>
           <h2 style={heading}>Urlaub · {nextMonthLabel}</h2>
-          <p style={sub}>Urlaubszeitraum eintragen. Alle Tage werden automatisch als Urlaub gesetzt und als Arbeitsstunden angerechnet.</p>
+          <p style={sub}>Urlaubszeitraum eintragen. Angerechnet werden nur die Tage, an denen du normalerweise arbeitest – 5 Stunden pro Tag. Samstag und Sonntag zählen nicht.</p>
 
           <label style={label}>Von</label>
           <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />

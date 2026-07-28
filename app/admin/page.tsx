@@ -17,6 +17,8 @@ import {
   Save
 } from 'lucide-react'
 import { getMonthDays, getDayName, isSaturday } from '@/lib/utils'
+import { computeVacationHours } from '@/lib/planner'
+import { getShiftDuration, getTargetHours, getMaxHours } from '@/lib/rules'
 
 type Employee = {
   id: string
@@ -56,6 +58,7 @@ export default function AdminPage() {
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [editingShift, setEditingShift] = useState<string | null>(null)
+  const [genError, setGenError] = useState<string | null>(null)
 
   const monthStart = startOfMonth(currentDate)
   const days = getMonthDays(currentDate.getFullYear(), currentDate.getMonth())
@@ -84,7 +87,7 @@ export default function AdminPage() {
 
     const { data: blockerData } = await supabase
       .from('blocker_days')
-      .select('employee_id, date, type')
+      .select('employee_id, date, type, shift_type')
       .gte('date', monthStr)
       .lt('date', nextMonthStr)
 
@@ -122,7 +125,8 @@ export default function AdminPage() {
 
   async function generatePlan() {
     setGenerating(true)
-    
+    setGenError(null)
+
     try {
       const response = await fetch('/api/generate-plan', {
         method: 'POST',
@@ -133,13 +137,18 @@ export default function AdminPage() {
         })
       })
 
-      if (response.ok) {
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const detail = result?.details?.length ? ' — ' + result.details.slice(0, 3).join('; ') : ''
+        setGenError((result?.error || `Fehler ${response.status}`) + detail)
+      } else {
         await fetchData()
       }
-    } catch (error) {
-      console.error('Fehler:', error)
+    } catch (error: any) {
+      setGenError('Netzwerkfehler: ' + (error?.message || 'unbekannt'))
     }
-    
+
     setGenerating(false)
   }
 
@@ -200,7 +209,11 @@ export default function AdminPage() {
     // Einschränkung bleibt: Qualifikation für den Bereich + kein Urlaub/Blocker an dem Tag.
     return employees.filter(e => {
       if (e.qualification !== 'both' && e.qualification !== shift.area) return false
-      const isBlocked = blockers.some(b => b.employee_id === e.id && b.date === shift.date)
+      const isBlocked = blockers.some(b =>
+        b.employee_id === e.id &&
+        b.date === shift.date &&
+        (!b.shift_type || b.shift_type === shift.shift_type)
+      )
       if (isBlocked) return false
       return true
     })
@@ -305,6 +318,16 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {genError && (
+          <div className="mb-4 flex items-start px-4 py-3 bg-red-50 border border-red-300 text-red-800 rounded-md text-sm">
+            <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+            <div>
+              <div className="font-medium">Plan wurde NICHT geändert</div>
+              <div>{genError}</div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -399,27 +422,34 @@ export default function AdminPage() {
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
           {employees.map(emp => {
-            const empShifts = shifts.filter(s => s.employee_id === emp.id)
-            const shiftHours = empShifts.reduce((acc, s) => {
-              if (s.shift_type === 'saturday') return acc + 6
-              return acc + 5
-            }, 0)
-            const vacationDays = blockers.filter(b => b.employee_id === emp.id && b.type === 'vacation').length
-            const hours = shiftHours + (vacationDays * 5)
-            
+            // Exakt dieselbe Rechnung wie im Generator - eine Quelle, lib/planner.ts
+            const shiftHours = shifts
+              .filter(s => s.employee_id === emp.id)
+              .reduce((acc, s) => acc + getShiftDuration(s.shift_type), 0)
+            const vacHours = computeVacationHours([emp], blockers)[emp.id] || 0
+            const hours = shiftHours + vacHours
+            const target = getTargetHours(emp.name) || emp.target_hours || 0
+            const max = getMaxHours(emp.name)
+            const over = max !== null && hours > max
+
             return (
               <div key={emp.id} className="bg-white p-4 rounded-lg shadow">
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{emp.name}</span>
-                  <span className={`text-sm ${hours >= emp.target_hours ? 'text-green-600' : 'text-gray-500'}`}>
-                    {hours}h / {emp.target_hours}h
+                  <span className={`text-sm ${over ? 'text-red-600 font-semibold' : hours >= target ? 'text-green-600' : 'text-gray-500'}`}>
+                    {hours}h / {target}h
                   </span>
                 </div>
                 <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all"
-                    style={{ width: `${Math.min((hours / Math.max(emp.target_hours, 1)) * 100, 100)}%` }}
+                  <div
+                    className={`h-2 rounded-full transition-all ${over ? 'bg-red-600' : 'bg-blue-600'}`}
+                    style={{ width: `${Math.min((hours / Math.max(target, 1)) * 100, 100)}%` }}
                   />
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  {shiftHours}h gearbeitet
+                  {vacHours > 0 && <> · {vacHours}h Urlaub</>}
+                  {max !== null && <> · max {max}h</>}
                 </div>
               </div>
             )
