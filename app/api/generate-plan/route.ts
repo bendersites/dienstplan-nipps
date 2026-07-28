@@ -2,20 +2,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 
-// Harte Stundenkappen für den allgemeinen Verteil-Pool.
-// Gudrun/Ines: Kappe = Sollstunden (kein Überschreiten).
-// Belli: einzige Ausnahme, darf bis 150 zum Lückenfüllen.
-// Peter: kein Deckel, reiner Springer.
-// Cindy/Marika/Anni tauchen hier nicht auf - die laufen nie über den allgemeinen Pool.
+// Harte Stundenkappen für ALLE Mitarbeiterinnen – keine Ausnahmen.
 const MAX_HOURS = {
-  'Ines': 80, 'Belli': 150, 'Gudrun': 120, 'Peter': 9999
+  'Cindy': 25, 'Anni': 40, 'Marika': 40,
+  'Ines': 80, 'Belli': 135, 'Gudrun': 120, 'Peter': 70
 }
 
-// Wer darf überhaupt in den allgemeinen Lückenfüll-Pool (nicht-fixe Slots)
+// Wer darf in den allgemeinen Lückenfüll-Pool (nicht-fixe Slots)
 const GENERAL_POOL_NAMES = ['Gudrun', 'Belli', 'Ines']
 
-// Fixe Slots: Tag -> Schicht -> Bereich -> Name
-// dayOfWeek: 1=Montag ... 5=Freitag
+// Fixe Slots: dayOfWeek (1=Mo..5=Fr) -> shiftType -> area -> Name
 const FIXED_SLOTS = {
   1: { morning: { shop: 'Belli', post: 'Anni' }, afternoon: { shop: 'Gudrun', post: 'Ines' } },
   2: { morning: { shop: 'Gudrun', post: 'Ines' }, afternoon: { post: 'Belli' } },
@@ -37,7 +33,7 @@ export async function POST(request) {
     const employees = employeesData || []
     const blockers = blockersData || []
 
-    // Urlaub als Stunden anrechnen
+    // Urlaubstage vorab als Stunden anrechnen
     const vacationHours = {}
     employees.forEach(e => { vacationHours[e.id] = 0 })
     blockers.filter(b => b.type === 'vacation').forEach(b => {
@@ -62,11 +58,15 @@ export async function POST(request) {
 
     const isBlocked = (empId, dateStr) => blockerSet.has(`${empId}|${dateStr}`)
     const getShiftDuration = (shiftType) => shiftType === 'saturday' ? 6 : 5
-    const getMaxHours = (emp) => MAX_HOURS[emp.name] !== undefined ? MAX_HOURS[emp.name] : emp.target_hours
-    // Schichtdauer-bewusst: prüft VOR der Zuweisung ob diese konkrete Schicht die Kappe sprengen würde.
-    // Wichtig wegen Samstag = 6h statt 5h - reiner ">=" Check greift da zu spät.
-    const wouldExceedMax = (emp, shiftType) =>
-      MAX_HOURS[emp.name] !== undefined && (employeeHours[emp.id] + getShiftDuration(shiftType) > MAX_HOURS[emp.name])
+
+    // Prüft VOR der Zuweisung ob diese Schicht die Kappe sprengt.
+    // Gilt für ALLE – auch Cindy/Anni/Marika über ihre fixen Slots.
+    const wouldExceedMax = (emp, shiftType) => {
+      const cap = MAX_HOURS[emp.name]
+      if (cap === undefined) return false
+      return (employeeHours[emp.id] + getShiftDuration(shiftType)) > cap
+    }
+
     const isAlreadyAssignedToday = (empId, dateStr) => assignedToday[dateStr]?.has(empId) || false
     const getEmployeeByName = (name) => employees.find(e => e.name === name)
 
@@ -75,9 +75,7 @@ export async function POST(request) {
       employeeHours[emp.id] += getShiftDuration(shiftType)
       if (!assignedToday[dateStr]) assignedToday[dateStr] = new Set()
       assignedToday[dateStr].add(emp.id)
-      if (shiftType === 'saturday') {
-        saturdayCount[emp.id] = (saturdayCount[emp.id] || 0) + 1
-      }
+      if (shiftType === 'saturday') saturdayCount[emp.id] = (saturdayCount[emp.id] || 0) + 1
     }
 
     const addOpen = (dateStr, shiftType, area) => {
@@ -93,23 +91,20 @@ export async function POST(request) {
       const dayKey = dayMap[dayOfWeek]
       const availKey = shiftType === 'saturday' ? 'sat_morning' : `${dayKey}_${shiftType === 'morning' ? 'morning' : 'afternoon'}`
       if (emp.availability && !emp.availability[availKey]) return false
-      // Peter: Montag und Donnerstag nachmittags nicht möglich
       if (emp.name === 'Peter' && shiftType === 'afternoon' && (dayOfWeek === 1 || dayOfWeek === 4)) return false
-      // Samstag: max 2 pro Monat, hart
       if (shiftType === 'saturday' && saturdayCount[emp.id] >= 2) return false
       return true
     }
 
     const scoreCandidate = (emp) => {
       let score = 0
-      const target = getMaxHours(emp) === MAX_HOURS['Belli'] && emp.name === 'Belli' ? emp.target_hours : getMaxHours(emp)
-      const remaining = target - employeeHours[emp.id]
+      const cap = MAX_HOURS[emp.name] || emp.target_hours
+      const remaining = cap - employeeHours[emp.id]
       if (remaining > 0) score += remaining * 50
-      if (employeeHours[emp.id] >= target) score -= 5000
+      if (employeeHours[emp.id] >= cap) score -= 5000
       return score
     }
 
-    // Zigarettenregel: Mo/Do vormittags Laden nur Belli oder Peter
     const isZigaretteSlot = (dayOfWeek, shiftType, area) =>
       (dayOfWeek === 1 || dayOfWeek === 4) && shiftType === 'morning' && area === 'shop'
 
@@ -120,9 +115,7 @@ export async function POST(request) {
       if (!emp) return false
       if (isBlocked(emp.id, dateStr)) return false
       if (isAlreadyAssignedToday(emp.id, dateStr)) return false
-      // Hartes Limit auch beim fixen Slot: bei 5x-Monaten (z.B. 5 Dienstage) darf
-      // auch der Fixslot die Kappe nicht sprengen. Slot fällt dann in den offenen Pool.
-      if (wouldExceedMax(emp, shiftType)) return false
+      if (wouldExceedMax(emp, shiftType)) return false  // Kappe gilt auch für fixe Slots
       addAssignment(dateStr, shiftType, area, emp)
       return true
     }
@@ -137,9 +130,7 @@ export async function POST(request) {
       const shiftTypes = isSat ? ['saturday'] : ['morning', 'afternoon']
       const areas = ['shop', 'post']
 
-      // PASS 1: alle fixen Slots des Tages zuerst (über beide Schichten/Bereiche hinweg).
-      // Wichtig: verhindert dass eine offene Schicht jemanden "verbraucht", bevor die
-      // eigene Fixschicht derselben Person am selben Tag drankommt.
+      // PASS 1: fixe Slots zuerst
       if (!isSat) {
         for (const shiftType of shiftTypes) {
           for (const area of areas) {
@@ -148,46 +139,44 @@ export async function POST(request) {
         }
       }
 
-      // PASS 2: alles was noch offen ist
+      // PASS 2: offene Slots füllen
       for (const shiftType of shiftTypes) {
         for (const area of areas) {
-          const alreadyAssigned = assignments.some(a => a.date === dateStr && a.shift_type === shiftType && a.area === area && !a.is_open)
+          const alreadyAssigned = assignments.some(a =>
+            a.date === dateStr && a.shift_type === shiftType && a.area === area && !a.is_open
+          )
           if (alreadyAssigned) continue
 
-          // 2. Zigarettenslot ohne fixe Person (Do vorm. Laden, oder Mo blockiert): nur Belli/Peter
+          // Zigarettenslot: nur Belli oder Peter
           if (!isSat && isZigaretteSlot(dayOfWeek, shiftType, area)) {
             const belli = getEmployeeByName('Belli')
             const peter = getEmployeeByName('Peter')
             if (belli && canWork(belli, dateStr, shiftType, area) && !wouldExceedMax(belli, shiftType)) {
               addAssignment(dateStr, shiftType, area, belli); continue
             }
-            if (peter && canWork(peter, dateStr, shiftType, area)) {
+            if (peter && canWork(peter, dateStr, shiftType, area) && !wouldExceedMax(peter, shiftType)) {
               addAssignment(dateStr, shiftType, area, peter); continue
             }
             addOpen(dateStr, shiftType, area); continue
           }
 
-          // 3. Allgemeiner Pool: Gudrun, Belli, Ines
+          // Allgemeiner Pool: Gudrun, Belli, Ines
           const candidates = employees
             .filter(e => GENERAL_POOL_NAMES.includes(e.name))
             .filter(e => canWork(e, dateStr, shiftType, area))
             .filter(e => !wouldExceedMax(e, shiftType))
             .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
 
-          const selected = candidates[0]
-          if (selected) {
-            addAssignment(dateStr, shiftType, area, selected)
-            continue
+          if (candidates[0]) {
+            addAssignment(dateStr, shiftType, area, candidates[0]); continue
           }
 
-          // 4. Fallback: Peter
+          // Fallback: Peter (nur wenn er sein Limit noch nicht erreicht hat)
           const peter = getEmployeeByName('Peter')
-          if (peter && canWork(peter, dateStr, shiftType, area)) {
-            addAssignment(dateStr, shiftType, area, peter)
-            continue
+          if (peter && canWork(peter, dateStr, shiftType, area) && !wouldExceedMax(peter, shiftType)) {
+            addAssignment(dateStr, shiftType, area, peter); continue
           }
 
-          // 5. Offen
           addOpen(dateStr, shiftType, area)
         }
       }
@@ -199,7 +188,16 @@ export async function POST(request) {
       employee_id: a.employee_id, schedule_id: scheduleId, is_open: a.is_open
     })))
 
-    return NextResponse.json({ success: true, stats: { total: assignments.length, open: assignments.filter(a => a.is_open).length, hours: employeeHours } })
+    return NextResponse.json({
+      success: true,
+      stats: {
+        total: assignments.length,
+        open: assignments.filter(a => a.is_open).length,
+        hours: Object.fromEntries(
+          employees.map(e => [e.name, employeeHours[e.id]])
+        )
+      }
+    })
   } catch (error) {
     console.error('Error:', error)
     return NextResponse.json({ error: 'Generation failed' }, { status: 500 })
