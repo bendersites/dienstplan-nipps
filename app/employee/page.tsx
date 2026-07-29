@@ -29,8 +29,14 @@ export default function EmployeePage() {
   const nextMonth = planMonth
   const nextMonthLabel = format(parseISO(planMonth + '-01'), 'MMMM yyyy')
   const viewMonthLabel = format(parseISO(viewMonth + '-01'), 'MMMM yyyy')
-  const canGoBack = viewMonth > planMonth
-  const canGoForward = viewMonth < addMonthsToKey(planMonth, 3)
+  // Alle Monate sind einsehbar - ein halbes Jahr zurueck, drei Monate voraus.
+  // Vergangene Monate nur zum Nachschauen, dort wird nichts mehr geaendert.
+  const currentMonthKey = format(new Date(), 'yyyy-MM')
+  const minMonth = addMonthsToKey(currentMonthKey, -6)
+  const maxMonth = addMonthsToKey(planMonth, 3)
+  const canGoBack = viewMonth > minMonth
+  const canGoForward = viewMonth < maxMonth
+  const readOnly = viewMonth < planMonth
 
   useEffect(() => {
     const email = localStorage.getItem('nipps_email')
@@ -44,14 +50,23 @@ export default function EmployeePage() {
     setEmployee(emp)
     setConfirmed(emp.blocker_confirmed && emp.blocker_confirmed_month === nextMonth)
 
-    const monthStart = startOfMonth(new Date())
-    const { data: schedule } = await supabase.from('schedules').select('id').eq('month', format(monthStart, 'yyyy-MM-dd')).eq('status', 'published').single()
-    if (schedule) {
-      const { data: shiftData } = await supabase.from('shifts').select('*').eq('schedule_id', schedule.id).eq('employee_id', emp.id).order('date')
+    // Alle veroeffentlichten Plaene im einsehbaren Zeitraum laden,
+    // damit man beim Blaettern auch die eigenen Schichten sieht.
+    const from = addMonthsToKey(format(new Date(), 'yyyy-MM'), -6) + '-01'
+    const { data: schedules } = await supabase
+      .from('schedules').select('id').eq('status', 'published').gte('month', from)
+    const ids = (schedules || []).map(s => s.id)
+    if (ids.length) {
+      const { data: shiftData } = await supabase
+        .from('shifts').select('*').in('schedule_id', ids).eq('employee_id', emp.id).order('date')
       setShifts(shiftData || [])
+    } else {
+      setShifts([])
     }
 
-    const { data: blockerData } = await supabase.from('blocker_days').select('*').eq('employee_id', emp.id).gte('date', format(new Date(), 'yyyy-MM-dd')).order('date')
+    // Ab dem aeltesten einsehbaren Monat laden, damit vergangene Monate
+    // beim Zurueckblaettern nicht leer aussehen.
+    const { data: blockerData } = await supabase.from('blocker_days').select('*').eq('employee_id', emp.id).gte('date', addMonthsToKey(format(new Date(), 'yyyy-MM'), -6) + '-01').order('date')
     setBlockers(blockerData || [])
     setLoading(false)
   }
@@ -152,6 +167,7 @@ export default function EmployeePage() {
   const inView = (b) => b.date.startsWith(viewMonth)
   const blockersInView = blockersOnly.filter(inView)
   const vacationsInView = vacationsOnly.filter(inView)
+  const shiftsInView = shifts.filter(s => s.date.startsWith(viewMonth))
 
   const card = { background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
   const label = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px' }
@@ -168,6 +184,7 @@ export default function EmployeePage() {
       <span style={{ fontSize: '14px', fontWeight: 600 }}>
         {viewMonthLabel}
         {viewMonth === planMonth && <span style={{ color: '#c9a84c', fontSize: '11px', marginLeft: '8px', fontWeight: 700 }}>AKTUELL</span>}
+        {readOnly && <span style={{ color: '#999', fontSize: '11px', marginLeft: '8px', fontWeight: 600 }}>NUR ANSICHT</span>}
       </span>
       <button onClick={() => { if (canGoForward) { setViewMonth(addMonthsToKey(viewMonth, 1)); setPickedDays([]); setBlockerDate('') } }} disabled={!canGoForward} style={navBtn(canGoForward)}>›</button>
     </div>
@@ -184,12 +201,14 @@ export default function EmployeePage() {
 
       <main style={{ maxWidth: '680px', margin: '0 auto', padding: '24px' }}>
 
+        <div style={{ ...card, padding: '8px 16px' }}>{monthNav}</div>
+
         <div style={card}>
           <h2 style={heading}>Meine Schichten</h2>
-          <p style={sub}>Aktueller Monat</p>
-          {shifts.length === 0 ? (
-            <p style={{ color: '#999', fontSize: '14px' }}>Noch kein Plan veröffentlicht.</p>
-          ) : shifts.map(shift => (
+          <p style={sub}>{viewMonthLabel}</p>
+          {shiftsInView.length === 0 ? (
+            <p style={{ color: '#999', fontSize: '14px' }}>Für diesen Monat ist noch kein Plan veröffentlicht.</p>
+          ) : shiftsInView.map(shift => (
             <div key={shift.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
               <span style={{ fontWeight: 500 }}>{format(new Date(shift.date), 'dd.MM.yyyy')}</span>
               <span style={{ color: '#666' }}>{shift.shift_type === 'morning' ? 'Vormittag' : shift.shift_type === 'afternoon' ? 'Nachmittag' : 'Samstag'} · {shift.area === 'shop' ? 'Laden' : 'Post'}</span>
@@ -201,9 +220,14 @@ export default function EmployeePage() {
           <h2 style={heading}>Blockertage</h2>
           <p style={sub}>Tage an denen du nicht arbeiten kannst. Für {nextMonthLabel} bitte bis zum 24. eintragen.</p>
 
-          {monthNav}
+          {readOnly && (
+            <div style={{ padding: '12px', background: '#fafafa', borderLeft: '3px solid #ccc', borderRadius: '3px', marginBottom: '20px', fontSize: '13px', color: '#777' }}>
+              {viewMonthLabel} ist schon geplant. Du kannst hier nachschauen, was eingetragen war,
+              aber nichts mehr ändern. Wenn sich kurzfristig etwas ergibt, sag Peter Bescheid.
+            </div>
+          )}
 
-          {confirmed ? (
+          {!readOnly && (confirmed ? (
             <div style={{ padding: '12px', background: '#f0fff4', borderLeft: '3px solid #1a7a3a', borderRadius: '3px', marginBottom: '20px', fontSize: '14px', color: '#1a7a3a' }}>
               ✓ Keine Blockertage für {nextMonthLabel} bestätigt.
             </div>
@@ -211,8 +235,9 @@ export default function EmployeePage() {
             <button onClick={confirmNoBlockers} style={{ width: '100%', padding: '12px', background: '#f0fff4', border: '1px solid #1a7a3a', borderRadius: '3px', color: '#1a7a3a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '20px' }}>
               Ich habe keine Blockertage für {nextMonthLabel}
             </button>
-          )}
+          ))}
 
+          {!readOnly && (<>
           <label style={label}>Datum</label>
           <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={monthMin} max={monthMax} style={inp} />
 
@@ -237,6 +262,11 @@ export default function EmployeePage() {
           <button onClick={addBlocker} style={{ width: '100%', padding: '12px', background: '#e8000d', color: '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
             Blockertag eintragen
           </button>
+          </>)}
+
+          {readOnly && blockersInView.length === 0 && (
+            <p style={{ color: '#999', fontSize: '14px' }}>Keine Blockertage eingetragen.</p>
+          )}
 
           {blockersInView.length > 0 && (
             <div style={{ marginTop: '20px' }}>
@@ -249,7 +279,7 @@ export default function EmployeePage() {
                     </span>
                     {b.reason && <span style={{ color: '#999', marginLeft: '8px' }}>({b.reason})</span>}
                   </span>
-                  <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>
+                  {!readOnly && <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>}
                 </div>
               ))}
             </div>
@@ -260,17 +290,21 @@ export default function EmployeePage() {
           <h2 style={heading}>Urlaub · {viewMonthLabel}</h2>
           <p style={sub}>Angerechnet werden nur die Tage, an denen du normalerweise arbeitest – 5 Stunden pro Tag. Samstag und Sonntag zählen nicht.</p>
 
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-            <button onClick={() => setVacMode('days')} style={{ ...tab, ...(vacMode === 'days' ? tabOn : {}) }}>Einzelne Tage</button>
-            <button onClick={() => setVacMode('range')} style={{ ...tab, ...(vacMode === 'range' ? tabOn : {}) }}>Ganzer Zeitraum</button>
-          </div>
+          {!readOnly && (
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              <button onClick={() => setVacMode('days')} style={{ ...tab, ...(vacMode === 'days' ? tabOn : {}) }}>Einzelne Tage</button>
+              <button onClick={() => setVacMode('range')} style={{ ...tab, ...(vacMode === 'range' ? tabOn : {}) }}>Ganzer Zeitraum</button>
+            </div>
+          )}
 
-          {vacMode === 'days' ? (
+          {(readOnly || vacMode === 'days') ? (
             <>
-              <p style={{ ...sub, marginBottom: '12px' }}>
-                Tage antippen, an denen du frei hast. Wenn du zum Beispiel nur freitags arbeitest,
-                reicht es, deine Freitage anzuklicken.
-              </p>
+              {!readOnly && (
+                <p style={{ ...sub, marginBottom: '12px' }}>
+                  Tage antippen, an denen du frei hast. Wenn du zum Beispiel nur freitags arbeitest,
+                  reicht es, deine Freitage anzuklicken.
+                </p>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '12px' }}>
                 {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => (
@@ -286,8 +320,8 @@ export default function EmployeePage() {
                   return (
                     <button
                       key={ds}
-                      onClick={() => !already && !isSun && toggleDay(ds)}
-                      disabled={already || isSun}
+                      onClick={() => !readOnly && !already && !isSun && toggleDay(ds)}
+                      disabled={readOnly || already || isSun}
                       style={{
                         padding: '10px 0', fontSize: '13px', borderRadius: '3px', cursor: already || isSun ? 'default' : 'pointer',
                         border: '1px solid ' + (picked ? '#1a1a1a' : already ? '#c9a84c' : '#e8e8e8'),
@@ -302,16 +336,26 @@ export default function EmployeePage() {
                 })}
               </div>
 
-              <p style={{ fontSize: '12px', color: '#999', marginBottom: '12px' }}>
-                {pickedDays.length > 0
-                  ? `${pickedDays.length} Tag${pickedDays.length === 1 ? '' : 'e'} ausgewählt`
-                  : 'Noch nichts ausgewählt'}
-                {savedVacationDays.size > 0 && ' · beige = schon eingetragen'}
-              </p>
+              {readOnly ? (
+                <p style={{ fontSize: '12px', color: '#999' }}>
+                  {vacationsInView.length > 0
+                    ? `${vacationsInView.length} Urlaubstag${vacationsInView.length === 1 ? '' : 'e'} · beige markiert`
+                    : 'Kein Urlaub eingetragen.'}
+                </p>
+              ) : (
+                <>
+                  <p style={{ fontSize: '12px', color: '#999', marginBottom: '12px' }}>
+                    {pickedDays.length > 0
+                      ? `${pickedDays.length} Tag${pickedDays.length === 1 ? '' : 'e'} ausgewählt`
+                      : 'Noch nichts ausgewählt'}
+                    {savedVacationDays.size > 0 && ' · beige = schon eingetragen'}
+                  </p>
 
-              <button onClick={savePickedDays} disabled={!pickedDays.length} style={{ width: '100%', padding: '12px', background: pickedDays.length ? '#1a1a1a' : '#ccc', color: pickedDays.length ? '#c9a84c' : '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: pickedDays.length ? 'pointer' : 'default' }}>
-                Ausgewählte Tage eintragen
-              </button>
+                  <button onClick={savePickedDays} disabled={!pickedDays.length} style={{ width: '100%', padding: '12px', background: pickedDays.length ? '#1a1a1a' : '#ccc', color: pickedDays.length ? '#c9a84c' : '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: pickedDays.length ? 'pointer' : 'default' }}>
+                    Ausgewählte Tage eintragen
+                  </button>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -331,7 +375,7 @@ export default function EmployeePage() {
               {vacationsInView.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
                   <span style={{ color: '#1a1a1a' }}>{format(new Date(b.date), 'dd.MM.yyyy')}</span>
-                  <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>
+                  {!readOnly && <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>}
                 </div>
               ))}
             </div>
