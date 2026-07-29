@@ -108,36 +108,59 @@
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
 
-  html, body { background: #fff !important; }
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+  }
 
-  /* Alles ausblenden ausser dem Planbereich. So muss nicht jedes
-     Element im Admin einzeln mit einer Klasse versehen werden. */
-  body * { visibility: hidden; }
-  .print-area, .print-area * { visibility: visible; }
-  .no-print, .no-print * { visibility: hidden !important; display: none !important; }
+  /* Alles wegwerfen, was nicht zum Plan gehoert - und zwar mit
+     display:none, nicht visibility:hidden. Versteckte Elemente
+     behalten ihre Hoehe, davon kam die zweite leere Seite.
+     :not(:has(.print-area)) laesst die Elternkette des Plans stehen,
+     alles daneben faellt raus. */
+  body *:not(:has(.print-area)):not(.print-area):not(.print-area *) {
+    display: none !important;
+  }
+  .no-print, .no-print * { display: none !important; }
+
+  /* Elternkette auf null: kein Rand, keine Spaltenbreite, keine Schatten.
+     Sonst sitzt der Plan in der 680px-Spalte der Mitarbeiterseite. */
+  body:has(.print-area) *:has(.print-area) {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+    min-height: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    transform: none !important;
+  }
 
   .print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    background: #fff;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    transform: none !important;
+    background: #fff !important;
     box-shadow: none !important;
     border: 0 !important;
     border-radius: 0 !important;
   }
 
-  .mp-wide { width: 100%; margin-left: 0; transform: none; }
   .mp-root { overflow: visible; }
-  .mp-table { min-width: 0; font-size: 7.5pt; }
-  .mp-table th, .mp-table td { height: 13pt; padding: 0; }
-  .mp-wd th { font-size: 6.5pt; }
-  .mp-dates th { font-size: 7pt; }
+  .mp-table { min-width: 0; font-size: 8pt; }
+  .mp-table th, .mp-table td { height: 14pt; padding: 0; }
+  .mp-wd th { font-size: 7pt; }
+  .mp-dates th { font-size: 7.5pt; }
   .mp-title { font-size: 13pt; }
-  .mp-legend { font-size: 6.5pt; }
-  .mp-absences { font-size: 7pt; }
+  .mp-legend { font-size: 7pt; }
+  .mp-absences { font-size: 7.5pt; }
 
   /* Farben muessen mitgedruckt werden, sonst ist der
      Sonntagsbalken weiss und die Wochengrenze weg. */
