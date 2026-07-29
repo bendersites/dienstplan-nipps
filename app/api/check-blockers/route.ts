@@ -3,14 +3,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createServerClient } from '@/lib/supabase'
 import { format, addMonths, startOfMonth } from 'date-fns'
+import { getPlanningMonth } from '@/lib/rules'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(request: NextRequest) {
   try {
     const supabase = createServerClient()
-    const nextMonthDate = addMonths(startOfMonth(new Date()), 1)
-    const nextMonth = format(nextMonthDate, 'yyyy-MM')
+    // Planungsmonat: bis zum 24. der Folgemonat, danach der uebernaechste.
+    const nextMonth = getPlanningMonth()
+    const nextMonthDate = new Date(nextMonth + '-01T12:00:00')
     const nextMonthLabel = format(nextMonthDate, 'MMMM yyyy')
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 

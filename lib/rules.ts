@@ -51,6 +51,27 @@ export const SHIFT_HOURS = { morning: 5, afternoon: 5, saturday: 6 }
 // Ein Urlaubstag wird mit einer Schicht angerechnet.
 export const VACATION_HOURS_PER_DAY = 5
 
+// Bis zu diesem Tag im Monat traegt man fuer den Folgemonat ein.
+// Danach ist der Folgemonat durch und es geht um den Monat danach.
+export const BLOCKER_DEADLINE_DAY = 24
+
+// Welcher Monat wird gerade geplant? Bis zum 24. der Folgemonat,
+// ab dem 25. der uebernaechste. Gibt "YYYY-MM" zurueck.
+export function getPlanningMonth(ref = new Date()) {
+  const ahead = ref.getDate() > BLOCKER_DEADLINE_DAY ? 2 : 1
+  const total = ref.getMonth() + ahead
+  return `${ref.getFullYear() + Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`
+}
+
+// "2026-09" + 2 -> "2026-11", auch rueckwaerts ueber den Jahreswechsel.
+// JavaScript rechnet -1 % 12 = -1, deshalb der Zusatz.
+export function addMonthsToKey(monthKey, n) {
+  const [y, m] = monthKey.split('-').map(Number)
+  const total = m - 1 + n
+  const mod = ((total % 12) + 12) % 12
+  return `${y + Math.floor(total / 12)}-${String(mod + 1).padStart(2, '0')}`
+}
+
 // Fixe Slots: dayOfWeek (1=Mo..5=Fr) -> shiftType -> area -> Name
 export const FIXED_SLOTS = {
   1: { morning: { shop: 'Belli', post: 'Anni' }, afternoon: { shop: 'Gudrun', post: 'Ines' } },

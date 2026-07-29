@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { format, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
+import { getPlanningMonth, addMonthsToKey } from '@/lib/rules'
 
 export default function EmployeePage() {
   const [employee, setEmployee] = useState(null)
@@ -19,8 +20,17 @@ export default function EmployeePage() {
   const [loading, setLoading] = useState(true)
   const [confirmed, setConfirmed] = useState(false)
 
-  const nextMonth = format(addMonths(startOfMonth(new Date()), 1), 'yyyy-MM')
-  const nextMonthLabel = format(addMonths(startOfMonth(new Date()), 1), 'MMMM yyyy')
+  // Planungsmonat: bis zum 24. der Folgemonat, danach der uebernaechste.
+  // Vorher stand hier fest "naechster Monat" - deshalb konnte man Ende Juli
+  // nur noch August eintragen, obwohl August laengst geplant war.
+  const planMonth = getPlanningMonth()
+  const [viewMonth, setViewMonth] = useState(planMonth)
+
+  const nextMonth = planMonth
+  const nextMonthLabel = format(parseISO(planMonth + '-01'), 'MMMM yyyy')
+  const viewMonthLabel = format(parseISO(viewMonth + '-01'), 'MMMM yyyy')
+  const canGoBack = viewMonth > planMonth
+  const canGoForward = viewMonth < addMonthsToKey(planMonth, 3)
 
   useEffect(() => {
     const email = localStorage.getItem('nipps_email')
@@ -132,10 +142,16 @@ export default function EmployeePage() {
   const blockersOnly = blockers.filter(b => b.type !== 'vacation')
   const vacationsOnly = blockers.filter(b => b.type === 'vacation')
 
-  // Kalender fuer den Planungsmonat (naechster Monat)
-  const calFirst = addMonths(startOfMonth(new Date()), 1)
+  // Kalender fuer den gerade angezeigten Monat
+  const calFirst = parseISO(viewMonth + '-01')
   const calDays = eachDayOfInterval({ start: calFirst, end: endOfMonth(calFirst) })
   const savedVacationDays = new Set(vacationsOnly.map(b => b.date))
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const monthMin = viewMonth + '-01' > todayStr ? viewMonth + '-01' : todayStr
+  const monthMax = format(endOfMonth(parseISO(viewMonth + '-01')), 'yyyy-MM-dd')
+  const inView = (b) => b.date.startsWith(viewMonth)
+  const blockersInView = blockersOnly.filter(inView)
+  const vacationsInView = vacationsOnly.filter(inView)
 
   const card = { background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
   const label = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px' }
@@ -144,6 +160,18 @@ export default function EmployeePage() {
   const sub = { color: '#999', fontSize: '13px', marginBottom: '20px' }
   const tab = { flex: 1, padding: '10px', border: '1px solid #e0e0e0', background: '#fff', borderRadius: '3px', fontSize: '13px', color: '#666', cursor: 'pointer' }
   const tabOn = { background: '#1a1a1a', color: '#c9a84c', borderColor: '#1a1a1a', fontWeight: 600 }
+  const navBtn = (on) => ({ padding: '6px 12px', border: '1px solid #e0e0e0', background: '#fff', borderRadius: '3px', fontSize: '16px', lineHeight: 1, color: on ? '#1a1a1a' : '#ddd', cursor: on ? 'pointer' : 'default' })
+
+  const monthNav = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', padding: '8px 0', borderTop: '1px solid #f0f0f0', borderBottom: '1px solid #f0f0f0' }}>
+      <button onClick={() => { if (canGoBack) { setViewMonth(addMonthsToKey(viewMonth, -1)); setPickedDays([]); setBlockerDate('') } }} disabled={!canGoBack} style={navBtn(canGoBack)}>‹</button>
+      <span style={{ fontSize: '14px', fontWeight: 600 }}>
+        {viewMonthLabel}
+        {viewMonth === planMonth && <span style={{ color: '#c9a84c', fontSize: '11px', marginLeft: '8px', fontWeight: 700 }}>AKTUELL</span>}
+      </span>
+      <button onClick={() => { if (canGoForward) { setViewMonth(addMonthsToKey(viewMonth, 1)); setPickedDays([]); setBlockerDate('') } }} disabled={!canGoForward} style={navBtn(canGoForward)}>›</button>
+    </div>
+  )
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f0', fontFamily: 'system-ui, sans-serif' }}>
@@ -170,8 +198,10 @@ export default function EmployeePage() {
         </div>
 
         <div style={card}>
-          <h2 style={heading}>Blockertage · {nextMonthLabel}</h2>
-          <p style={sub}>Tage an denen du nicht arbeiten kannst. Bitte bis zum 24. eintragen.</p>
+          <h2 style={heading}>Blockertage</h2>
+          <p style={sub}>Tage an denen du nicht arbeiten kannst. Für {nextMonthLabel} bitte bis zum 24. eintragen.</p>
+
+          {monthNav}
 
           {confirmed ? (
             <div style={{ padding: '12px', background: '#f0fff4', borderLeft: '3px solid #1a7a3a', borderRadius: '3px', marginBottom: '20px', fontSize: '14px', color: '#1a7a3a' }}>
@@ -184,7 +214,7 @@ export default function EmployeePage() {
           )}
 
           <label style={label}>Datum</label>
-          <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
+          <input type="date" value={blockerDate} onChange={e => setBlockerDate(e.target.value)} min={monthMin} max={monthMax} style={inp} />
 
           <label style={label}>Zeitraum</label>
           {blockerDateIsSaturday ? (
@@ -208,9 +238,9 @@ export default function EmployeePage() {
             Blockertag eintragen
           </button>
 
-          {blockersOnly.length > 0 && (
+          {blockersInView.length > 0 && (
             <div style={{ marginTop: '20px' }}>
-              {blockersOnly.map(b => (
+              {blockersInView.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
                   <span>
                     {format(new Date(b.date), 'dd.MM.yyyy')}
@@ -227,8 +257,8 @@ export default function EmployeePage() {
         </div>
 
         <div style={card}>
-          <h2 style={heading}>Urlaub · {nextMonthLabel}</h2>
-          <p style={sub}>Urlaubszeitraum eintragen. Angerechnet werden nur die Tage, an denen du normalerweise arbeitest – 5 Stunden pro Tag. Samstag und Sonntag zählen nicht.</p>
+          <h2 style={heading}>Urlaub · {viewMonthLabel}</h2>
+          <p style={sub}>Angerechnet werden nur die Tage, an denen du normalerweise arbeitest – 5 Stunden pro Tag. Samstag und Sonntag zählen nicht.</p>
 
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
             <button onClick={() => setVacMode('days')} style={{ ...tab, ...(vacMode === 'days' ? tabOn : {}) }}>Einzelne Tage</button>
@@ -287,18 +317,18 @@ export default function EmployeePage() {
             <>
               <p style={{ ...sub, marginBottom: '12px' }}>Für längeren Urlaub am Stück.</p>
               <label style={label}>Von</label>
-              <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
+              <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={monthMin} max={monthMax} style={inp} />
               <label style={label}>Bis</label>
-              <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={inp} />
+              <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || monthMin} max={monthMax} style={inp} />
               <button onClick={addVacation} style={{ width: '100%', padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
                 Urlaub eintragen
               </button>
             </>
           )}
 
-          {vacationsOnly.length > 0 && (
+          {vacationsInView.length > 0 && (
             <div style={{ marginTop: '20px' }}>
-              {vacationsOnly.map(b => (
+              {vacationsInView.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
                   <span style={{ color: '#1a1a1a' }}>{format(new Date(b.date), 'dd.MM.yyyy')}</span>
                   <button onClick={() => removeEntry(b.id)} style={{ background: 'none', border: 'none', color: '#e8000d', cursor: 'pointer', fontSize: '13px' }}>Löschen</button>

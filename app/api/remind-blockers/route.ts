@@ -3,14 +3,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createServerClient } from '@/lib/supabase'
 import { format, addMonths, startOfMonth } from 'date-fns'
+import { getPlanningMonth } from '@/lib/rules'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(request: NextRequest) {
   try {
     const supabase = createServerClient()
-    const nextMonthDate = addMonths(startOfMonth(new Date()), 1)
-    const nextMonthLabel = format(nextMonthDate, 'MMMM yyyy')
+    const nextMonthLabel = format(new Date(getPlanningMonth() + '-01T12:00:00'), 'MMMM yyyy')
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
     const { data: employees } = await supabase
