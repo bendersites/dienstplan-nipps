@@ -111,6 +111,21 @@ export default function MonatsplanGrid({
     shiftMap.get(k).add(s.shift_type)
   }
 
+  // Doppeldienst wird ueber BEIDE Bereiche hinweg erkannt. Wer vormittags
+  // in der Post und nachmittags im Laden steht, hat einen ganzen Tag -
+  // dann steht in jeder seiner Zellen an dem Tag V/N.
+  const dayTypes = new Map()   // empId|date -> Set(shift_type)
+  for (const s of shifts) {
+    if (!s.employee_id) continue
+    const k = `${s.employee_id}|${s.date}`
+    if (!dayTypes.has(k)) dayTypes.set(k, new Set())
+    dayTypes.get(k).add(s.shift_type)
+  }
+  const fullDay = new Set()
+  for (const [k, t] of dayTypes) {
+    if (t.has('morning') && t.has('afternoon')) fullDay.add(k)
+  }
+
   const openMap = new Map()    // date|area -> Set(shift_type)
   for (const s of shifts) {
     if (!s.is_open) continue
@@ -132,10 +147,8 @@ export default function MonatsplanGrid({
   function cellFor(emp, day, area) {
     const types = shiftMap.get(`${emp.id}|${day.date}|${area}`)
     if (types && types.size) {
-      const hasM = types.has('morning')
-      const hasA = types.has('afternoon')
-      if (hasM && hasA) return { text: 'V/N', kind: 'shift' }
-      if (hasA) return { text: 'N', kind: 'shift' }
+      if (fullDay.has(`${emp.id}|${day.date}`)) return { text: 'V/N', kind: 'shift' }
+      if (types.has('afternoon')) return { text: 'N', kind: 'shift' }
       return { text: 'V', kind: 'shift' }   // morning oder saturday
     }
     if (vacSet.has(`${emp.id}|${day.date}`)) return { text: 'U', kind: 'vac' }
