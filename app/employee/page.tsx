@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { format, startOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
+import { format, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
 
 export default function EmployeePage() {
   const [employee, setEmployee] = useState(null)
@@ -14,6 +14,8 @@ export default function EmployeePage() {
   const [blockerShift, setBlockerShift] = useState('')
   const [vacationFrom, setVacationFrom] = useState('')
   const [vacationTo, setVacationTo] = useState('')
+  const [vacMode, setVacMode] = useState('days')   // 'days' = einzelne Tage anklicken, 'range' = Von-Bis
+  const [pickedDays, setPickedDays] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirmed, setConfirmed] = useState(false)
 
@@ -89,6 +91,30 @@ export default function EmployeePage() {
     await fetch('/api/check-blockers', { method: 'POST' })
   }
 
+  // Einzelne angeklickte Tage speichern.
+  // Wer nur freitags arbeitet, klickt einfach seine Freitage an
+  // statt einen Zeitraum ueber die ganze Woche zu legen.
+  async function savePickedDays() {
+    if (!pickedDays.length || !employee) return
+    const existing = new Set(blockers.filter(b => b.type === 'vacation').map(b => b.date))
+    const inserts = pickedDays
+      .filter(d => !existing.has(d))
+      .map(d => ({ employee_id: employee.id, date: d, type: 'vacation', shift_type: null }))
+
+    if (inserts.length) {
+      const { error } = await supabase.from('blocker_days').insert(inserts)
+      if (error) { alert('Urlaub konnte nicht gespeichert werden: ' + error.message); return }
+    }
+    await supabase.from('employees').update({ blocker_confirmed: true, blocker_confirmed_month: nextMonth }).eq('id', employee.id)
+    setPickedDays([])
+    await fetchData(employee.email)
+    await fetch('/api/check-blockers', { method: 'POST' })
+  }
+
+  function toggleDay(d) {
+    setPickedDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
+  }
+
   async function removeEntry(id) {
     await supabase.from('blocker_days').delete().eq('id', id)
     await fetchData(employee.email)
@@ -106,11 +132,18 @@ export default function EmployeePage() {
   const blockersOnly = blockers.filter(b => b.type !== 'vacation')
   const vacationsOnly = blockers.filter(b => b.type === 'vacation')
 
+  // Kalender fuer den Planungsmonat (naechster Monat)
+  const calFirst = addMonths(startOfMonth(new Date()), 1)
+  const calDays = eachDayOfInterval({ start: calFirst, end: endOfMonth(calFirst) })
+  const savedVacationDays = new Set(vacationsOnly.map(b => b.date))
+
   const card = { background: '#fff', borderRadius: '4px', padding: '24px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
   const label = { display: 'block', fontSize: '11px', fontWeight: 600, color: '#999', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px' }
   const inp = { width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '3px', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' }
   const heading = { fontSize: '14px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#1a1a1a', marginBottom: '4px' }
   const sub = { color: '#999', fontSize: '13px', marginBottom: '20px' }
+  const tab = { flex: 1, padding: '10px', border: '1px solid #e0e0e0', background: '#fff', borderRadius: '3px', fontSize: '13px', color: '#666', cursor: 'pointer' }
+  const tabOn = { background: '#1a1a1a', color: '#c9a84c', borderColor: '#1a1a1a', fontWeight: 600 }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f0', fontFamily: 'system-ui, sans-serif' }}>
@@ -197,13 +230,71 @@ export default function EmployeePage() {
           <h2 style={heading}>Urlaub · {nextMonthLabel}</h2>
           <p style={sub}>Urlaubszeitraum eintragen. Angerechnet werden nur die Tage, an denen du normalerweise arbeitest – 5 Stunden pro Tag. Samstag und Sonntag zählen nicht.</p>
 
-          <label style={label}>Von</label>
-          <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
-          <label style={label}>Bis</label>
-          <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={inp} />
-          <button onClick={addVacation} style={{ width: '100%', padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
-            Urlaub eintragen
-          </button>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <button onClick={() => setVacMode('days')} style={{ ...tab, ...(vacMode === 'days' ? tabOn : {}) }}>Einzelne Tage</button>
+            <button onClick={() => setVacMode('range')} style={{ ...tab, ...(vacMode === 'range' ? tabOn : {}) }}>Ganzer Zeitraum</button>
+          </div>
+
+          {vacMode === 'days' ? (
+            <>
+              <p style={{ ...sub, marginBottom: '12px' }}>
+                Tage antippen, an denen du frei hast. Wenn du zum Beispiel nur freitags arbeitest,
+                reicht es, deine Freitage anzuklicken.
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '12px' }}>
+                {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(d => (
+                  <div key={d} style={{ textAlign: 'center', fontSize: '11px', color: '#999', fontWeight: 600, paddingBottom: '4px' }}>{d}</div>
+                ))}
+                {Array.from({ length: (calFirst.getDay() + 6) % 7 }).map((_, i) => <div key={'pad' + i} />)}
+                {calDays.map(d => {
+                  const ds = format(d, 'yyyy-MM-dd')
+                  const dow = d.getDay()
+                  const already = savedVacationDays.has(ds)
+                  const picked = pickedDays.includes(ds)
+                  const isSun = dow === 0
+                  return (
+                    <button
+                      key={ds}
+                      onClick={() => !already && !isSun && toggleDay(ds)}
+                      disabled={already || isSun}
+                      style={{
+                        padding: '10px 0', fontSize: '13px', borderRadius: '3px', cursor: already || isSun ? 'default' : 'pointer',
+                        border: '1px solid ' + (picked ? '#1a1a1a' : already ? '#c9a84c' : '#e8e8e8'),
+                        background: picked ? '#1a1a1a' : already ? '#faf3e0' : isSun ? '#fafafa' : '#fff',
+                        color: picked ? '#c9a84c' : already ? '#8a6d1a' : isSun ? '#ccc' : '#1a1a1a',
+                        fontWeight: picked || already ? 600 : 400,
+                      }}
+                    >
+                      {format(d, 'd')}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <p style={{ fontSize: '12px', color: '#999', marginBottom: '12px' }}>
+                {pickedDays.length > 0
+                  ? `${pickedDays.length} Tag${pickedDays.length === 1 ? '' : 'e'} ausgewählt`
+                  : 'Noch nichts ausgewählt'}
+                {savedVacationDays.size > 0 && ' · beige = schon eingetragen'}
+              </p>
+
+              <button onClick={savePickedDays} disabled={!pickedDays.length} style={{ width: '100%', padding: '12px', background: pickedDays.length ? '#1a1a1a' : '#ccc', color: pickedDays.length ? '#c9a84c' : '#fff', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: pickedDays.length ? 'pointer' : 'default' }}>
+                Ausgewählte Tage eintragen
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ ...sub, marginBottom: '12px' }}>Für längeren Urlaub am Stück.</p>
+              <label style={label}>Von</label>
+              <input type="date" value={vacationFrom} onChange={e => setVacationFrom(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} style={inp} />
+              <label style={label}>Bis</label>
+              <input type="date" value={vacationTo} onChange={e => setVacationTo(e.target.value)} min={vacationFrom || format(new Date(), 'yyyy-MM-dd')} style={inp} />
+              <button onClick={addVacation} style={{ width: '100%', padding: '12px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '13px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+                Urlaub eintragen
+              </button>
+            </>
+          )}
 
           {vacationsOnly.length > 0 && (
             <div style={{ marginTop: '20px' }}>
