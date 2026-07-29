@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { format, startOfMonth, addMonths, subMonths } from 'date-fns'
+import { format, startOfMonth, addMonths, subMonths, addDays, parseISO } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { 
   ChevronLeft, 
@@ -87,9 +87,10 @@ export default function AdminPage() {
 
     const { data: blockerData } = await supabase
       .from('blocker_days')
-      .select('employee_id, date, type, shift_type')
+      .select('employee_id, date, type, shift_type, reason')
       .gte('date', monthStr)
       .lt('date', nextMonthStr)
+      .order('date')
 
     setBlockers(blockerData || [])
 
@@ -219,6 +220,22 @@ export default function AdminPage() {
     })
   }
 
+  // Aufeinanderfolgende Tage zu Zeitraeumen zusammenfassen,
+  // damit aus 16 Urlaubszeilen "08.08. – 23.08." wird.
+  function groupRanges(dates: string[]) {
+    const sorted = [...new Set(dates)].sort()
+    const out: { from: string; to: string }[] = []
+    for (const d of sorted) {
+      const last = out[out.length - 1]
+      if (last && format(addDays(parseISO(last.to), 1), 'yyyy-MM-dd') === d) last.to = d
+      else out.push({ from: d, to: d })
+    }
+    return out
+  }
+
+  const shiftLabel = (t: string | null) =>
+    t === 'morning' ? 'nur Vormittag' : t === 'afternoon' ? 'nur Nachmittag' : 'ganzer Tag'
+
   const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1))
   const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1))
 
@@ -327,6 +344,66 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Eingetragener Urlaub & Blockertage · {format(currentDate, 'MMMM yyyy', { locale: de })}
+            </h3>
+            <span className="text-xs text-gray-500">{blockers.length} Einträge</span>
+          </div>
+
+          {blockers.length === 0 ? (
+            <div className="px-4 py-4 text-sm text-gray-500">
+              Für diesen Monat hat niemand etwas eingetragen.
+            </div>
+          ) : (
+            <div className="divide-y">
+              {employees.map(emp => {
+                const mine = blockers.filter(b => b.employee_id === emp.id)
+                if (!mine.length) return null
+
+                const vacRanges = groupRanges(mine.filter(b => b.type === 'vacation').map(b => b.date))
+                const blockDays = mine.filter(b => b.type !== 'vacation')
+                const vacHours = computeVacationHours([emp], blockers)[emp.id] || 0
+
+                return (
+                  <div key={emp.id} className="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-2">
+                    <div className="w-24 font-medium text-sm">{emp.name}</div>
+                    <div className="flex-1 min-w-[16rem] space-y-1 text-sm">
+                      {vacRanges.map((r, i) => (
+                        <div key={'v' + i} className="flex items-center">
+                          <span className="inline-block w-16 text-xs font-medium text-amber-700">Urlaub</span>
+                          <span>
+                            {r.from === r.to
+                              ? format(parseISO(r.from), 'dd.MM.yyyy')
+                              : `${format(parseISO(r.from), 'dd.MM.')} – ${format(parseISO(r.to), 'dd.MM.yyyy')}`}
+                            <span className="text-gray-500 ml-2">
+                              ({Math.round((parseISO(r.to).getTime() - parseISO(r.from).getTime()) / 86400000) + 1} Tage)
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+                      {blockDays.map((b, i) => (
+                        <div key={'b' + i} className="flex items-center">
+                          <span className="inline-block w-16 text-xs font-medium text-red-700">Blocker</span>
+                          <span>
+                            {format(parseISO(b.date), 'dd.MM.yyyy')}
+                            <span className="text-gray-500 ml-2">{shiftLabel(b.shift_type)}</span>
+                            {b.reason && <span className="text-gray-400 ml-2">· {b.reason}</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-sm text-gray-600 whitespace-nowrap">
+                      {vacHours > 0 ? `${vacHours}h angerechnet` : '–'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
