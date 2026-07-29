@@ -5,11 +5,18 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { format, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
 import { getPlanningMonth, addMonthsToKey } from '@/lib/rules'
+import MonatsplanGrid from '@/components/MonatsplanGrid'
 
 export default function EmployeePage() {
   const [employee, setEmployee] = useState(null)
   const [shifts, setShifts] = useState([])
   const [blockers, setBlockers] = useState([])
+  // Fuer die Planansicht: alles vom ganzen Team, nicht nur die eigenen Daten.
+  // Bewusst getrennt gehalten - die Eingabemasken unten rechnen weiter
+  // ausschliesslich mit den eigenen Eintraegen.
+  const [allEmployees, setAllEmployees] = useState([])
+  const [allShifts, setAllShifts] = useState([])
+  const [allBlockers, setAllBlockers] = useState([])
   const [blockerDate, setBlockerDate] = useState('')
   const [blockerReason, setBlockerReason] = useState('')
   const [blockerShift, setBlockerShift] = useState('')
@@ -57,12 +64,27 @@ export default function EmployeePage() {
       .from('schedules').select('id').eq('status', 'published').gte('month', from)
     const ids = (schedules || []).map(s => s.id)
     if (ids.length) {
+      // Der komplette Plan, nicht nur die eigenen Schichten. Die Frauen sehen
+      // online dasselbe Raster wie am Aushang im Laden - sonst sucht man auf
+      // dem Handy nach etwas anderem als auf dem Papier.
       const { data: shiftData } = await supabase
-        .from('shifts').select('*').in('schedule_id', ids).eq('employee_id', emp.id).order('date')
-      setShifts(shiftData || [])
+        .from('shifts').select('*').in('schedule_id', ids).order('date')
+      setAllShifts(shiftData || [])
+      setShifts((shiftData || []).filter(s => s.employee_id === emp.id))
     } else {
+      setAllShifts([])
       setShifts([])
     }
+
+    const { data: teamData } = await supabase
+      .from('employees').select('id, name, qualification').eq('active', true).order('name')
+    setAllEmployees(teamData || [])
+
+    // Urlaub und Blocker des ganzen Teams - nur fuer die Anzeige im Raster.
+    const { data: teamBlockers } = await supabase
+      .from('blocker_days').select('employee_id, date, type, shift_type, reason')
+      .gte('date', from).order('date')
+    setAllBlockers(teamBlockers || [])
 
     // Ab dem aeltesten einsehbaren Monat laden, damit vergangene Monate
     // beim Zurueckblaettern nicht leer aussehen.
@@ -203,17 +225,34 @@ export default function EmployeePage() {
 
         <div style={{ ...card, padding: '8px 16px' }}>{monthNav}</div>
 
-        <div style={card}>
-          <h2 style={heading}>Meine Schichten</h2>
-          <p style={sub}>{viewMonthLabel}</p>
-          {shiftsInView.length === 0 ? (
-            <p style={{ color: '#999', fontSize: '14px' }}>Für diesen Monat ist noch kein Plan veröffentlicht.</p>
-          ) : shiftsInView.map(shift => (
-            <div key={shift.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '14px' }}>
-              <span style={{ fontWeight: 500 }}>{format(new Date(shift.date), 'dd.MM.yyyy')}</span>
-              <span style={{ color: '#666' }}>{shift.shift_type === 'morning' ? 'Vormittag' : shift.shift_type === 'afternoon' ? 'Nachmittag' : 'Samstag'} · {shift.area === 'shop' ? 'Laden' : 'Post'}</span>
-            </div>
-          ))}
+        {/* Derselbe Plan wie am Aushang, eigene Zeile hervorgehoben.
+            Auf dem Handy laesst sich die Tabelle seitlich schieben. */}
+        <div className="print-area mp-wide" style={card}>
+          {shiftsInView.length === 0 && allShifts.filter(s => s.date.startsWith(viewMonth)).length === 0 ? (
+            <>
+              <h2 style={heading}>Dienstplan</h2>
+              <p style={sub}>{viewMonthLabel}</p>
+              <p style={{ color: '#999', fontSize: '14px' }}>Für diesen Monat ist noch kein Plan veröffentlicht.</p>
+            </>
+          ) : (
+            <>
+              <MonatsplanGrid
+                month={viewMonth}
+                employees={allEmployees}
+                shifts={allShifts.filter(s => s.date.startsWith(viewMonth))}
+                blockers={allBlockers}
+                highlightEmployeeId={employee?.id}
+              />
+              <div className="no-print" style={{ marginTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', color: '#999' }}>
+                  Deine Zeile ist gelb hinterlegt. Seitlich schieben, um den ganzen Monat zu sehen.
+                </span>
+                <button onClick={() => window.print()} style={{ padding: '10px 16px', background: '#1a1a1a', color: '#c9a84c', border: 'none', borderRadius: '3px', fontSize: '12px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' }}>
+                  Als PDF / drucken
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={card}>

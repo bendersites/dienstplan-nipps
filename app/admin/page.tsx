@@ -14,8 +14,10 @@ import {
   Settings,
   LogOut,
   Trash2,
-  Save
+  Save,
+  Printer
 } from 'lucide-react'
+import MonatsplanGrid from '@/components/MonatsplanGrid'
 import { getMonthDays, getDayName, isSaturday } from '@/lib/utils'
 import { computeVacationHours } from '@/lib/planner'
 import { getShiftDuration, getTargetHours, getMaxHours } from '@/lib/rules'
@@ -286,6 +288,15 @@ export default function AdminPage() {
           </div>
           
           <div className="flex items-center space-x-3">
+            <button
+              onClick={() => window.print()}
+              className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-md hover:bg-gray-50"
+              title="Druckt nur den Monatsplan, A4 quer. Im Druckdialog „Als PDF sichern“ für die Datei."
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Drucken / PDF
+            </button>
+
             {openShifts > 0 && (
               <div className="flex items-center px-3 py-2 bg-red-50 text-red-700 rounded-md text-sm">
                 <AlertCircle className="w-4 h-4 mr-2" />
@@ -344,6 +355,17 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* Der Aushang. Genau das kommt auf Papier - A4 quer, ohne Stunden.
+            Alles andere auf der Seite wird beim Drucken ausgeblendet. */}
+        <div className="print-area bg-white rounded-lg shadow p-4 mb-6">
+          <MonatsplanGrid
+            month={format(monthStart, 'yyyy-MM')}
+            employees={employees}
+            shifts={shifts}
+            blockers={blockers}
+          />
+        </div>
 
         <div className="bg-white rounded-lg shadow mb-6">
           <div className="px-4 py-3 border-b flex items-center justify-between">
