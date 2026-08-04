@@ -155,15 +155,16 @@
 
   .mp-root { overflow: visible; }
   .mp-table { min-width: 0; font-size: 11pt; }
-  .mp-table th, .mp-table td { height: 20pt; padding: 1pt 0; }
-  .mp-wd th { font-size: 9pt; }
-  .mp-dates th { font-size: 10pt; }
+  .mp-table th, .mp-table td { height: 42pt; padding: 1pt 0; }
+  .mp-wd th { font-size: 9pt; height: 14pt !important; }
+  .mp-dates th { font-size: 10pt; height: 14pt !important; }
+  .mp-section td { height: 14pt !important; }
   .mp-title { font-size: 16pt; }
   .mp-brand { font-size: 10pt; }
-  .mp-legend { font-size: 8pt; margin-top: 8pt; }
-  .mp-absences { font-size: 9pt; margin-top: 10pt; }
+  .mp-legend { font-size: 8pt; margin-top: 6pt; }
+  .mp-absences { font-size: 9pt; margin-top: 8pt; }
   .mp-abs-title { font-size: 9pt; }
-  .mp-table th.mp-name, .mp-table td.mp-name { font-size: 9pt; padding-left: 3pt; width: 7% !important; }
+  .mp-table th.mp-name, .mp-table td.mp-name { font-size: 10pt; padding-left: 3pt; width: 7% !important; }
 
   /* Farben muessen mitgedruckt werden, sonst ist der
      Sonntagsbalken weiss und die Wochengrenze weg. */
