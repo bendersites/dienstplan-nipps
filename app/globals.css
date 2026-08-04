@@ -154,8 +154,8 @@
   }
 
   .mp-root { overflow: visible; }
-  .mp-table { min-width: 0; font-size: 10pt; }
-  .mp-table th, .mp-table td { height: 23pt; padding: 0; }
+  .mp-table { min-width: 0; font-size: 11pt; height: 140mm; }
+  .mp-table th, .mp-table td { padding: 0; }
   .mp-wd th { font-size: 8pt; height: 10pt !important; }
   .mp-dates th { font-size: 9pt; height: 10pt !important; }
   .mp-section td { height: 10pt !important; font-size: 8pt; }
