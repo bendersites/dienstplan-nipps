@@ -221,7 +221,7 @@ export default function MonatsplanGrid({
     })
     .filter(Boolean)
 
-  const colWidth = `${(100 - 13) / days.length}%`
+  const colWidth = `${(100 - 7) / days.length}%`
 
   return (
     <div className="mp-root">
@@ -232,7 +232,7 @@ export default function MonatsplanGrid({
 
       <table className="mp-table">
         <colgroup>
-          <col style={{ width: '13%' }} />
+          <col style={{ width: '7%' }} />
           {days.map(d => <col key={d.date} style={{ width: colWidth }} />)}
         </colgroup>
         <thead>

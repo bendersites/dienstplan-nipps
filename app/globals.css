@@ -163,7 +163,7 @@
   .mp-legend { font-size: 8pt; margin-top: 8pt; }
   .mp-absences { font-size: 9pt; margin-top: 10pt; }
   .mp-abs-title { font-size: 9pt; }
-  .mp-table th.mp-name, .mp-table td.mp-name { font-size: 10pt; padding-left: 4pt; }
+  .mp-table th.mp-name, .mp-table td.mp-name { font-size: 9pt; padding-left: 3pt; width: 7% !important; }
 
   /* Farben muessen mitgedruckt werden, sonst ist der
      Sonntagsbalken weiss und die Wochengrenze weg. */
