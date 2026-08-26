@@ -61,6 +61,16 @@ export default function AdminPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [editingShift, setEditingShift] = useState<string | null>(null)
   const [genError, setGenError] = useState<string | null>(null)
+  // Zeilen die Peter gerade selbst geaendert hat - damit er sieht wo er war.
+  const [touchedDays, setTouchedDays] = useState<Set<string>>(new Set())
+  // Blockertage/Urlaub die Peter fuer eine Mitarbeiterin eintraegt (Zettel-Faelle).
+  const [adminEntryEmp, setAdminEntryEmp] = useState('')
+  const [adminEntryFrom, setAdminEntryFrom] = useState('')
+  const [adminEntryTo, setAdminEntryTo] = useState('')
+  const [adminEntryType, setAdminEntryType] = useState('blocker')
+  const [adminEntryShift, setAdminEntryShift] = useState('')
+  const [adminEntryReason, setAdminEntryReason] = useState('')
+  const [adminEntrySaving, setAdminEntrySaving] = useState(false)
 
   const monthStart = startOfMonth(currentDate)
   const days = getMonthDays(currentDate.getFullYear(), currentDate.getMonth())
@@ -173,6 +183,10 @@ export default function AdminPage() {
 
     setEditingShift(null)
 
+    // Tag merken, damit die Zeile sichtbar markiert bleibt.
+    const changed = shifts.find(s => s.id === shiftId)
+    if (changed) setTouchedDays(prev => new Set(prev).add(changed.date))
+
     // Nur den lokalen State anpassen statt die ganze Seite neu zu laden.
     // fetchData() wuerde loading=true setzen, die Seite kurz leeren und
     // nach oben springen lassen - genau das soll beim Bearbeiten nicht passieren.
@@ -190,6 +204,50 @@ export default function AdminPage() {
       setOpenShifts(next.filter(s => s.is_open).length)
       return next
     })
+  }
+
+  // Peter traegt fuer eine Mitarbeiterin ein - z.B. wenn ihm ein Zettel
+  // zugesteckt wird. Von/Bis, alles dazwischen wird angelegt.
+  async function saveAdminEntry() {
+    if (!adminEntryEmp || !adminEntryFrom) return
+    setAdminEntrySaving(true)
+
+    const from = parseISO(adminEntryFrom)
+    const to = adminEntryTo ? parseISO(adminEntryTo) : from
+    const rows: any[] = []
+
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      if (d.getDay() === 0) continue // Sonntag hat sowieso zu
+      rows.push({
+        employee_id: adminEntryEmp,
+        date: format(d, 'yyyy-MM-dd'),
+        type: adminEntryType,
+        // Urlaub gilt immer ganztaegig, nur Blocker kann auf eine Schicht begrenzt sein
+        shift_type: adminEntryType === 'vacation' ? null : (adminEntryShift || null),
+        reason: adminEntryReason || null
+      })
+    }
+
+    if (rows.length) {
+      await supabase.from('blocker_days').insert(rows)
+      // Zaehlt genauso als "gemeldet" wie wenn die Mitarbeiterin selbst eintraegt
+      await supabase
+        .from('employees')
+        .update({ blocker_confirmed: true, blocker_confirmed_month: format(monthStart, 'yyyy-MM') })
+        .eq('id', adminEntryEmp)
+    }
+
+    setAdminEntryFrom('')
+    setAdminEntryTo('')
+    setAdminEntryShift('')
+    setAdminEntryReason('')
+    setAdminEntrySaving(false)
+    await fetchData()
+  }
+
+  async function removeBlockerEntry(employeeId: string, date: string) {
+    await supabase.from('blocker_days').delete().eq('employee_id', employeeId).eq('date', date)
+    await fetchData()
   }
 
   async function publishPlan() {
@@ -384,6 +442,98 @@ export default function AdminPage() {
           />
         </div>
 
+        {/* Peter traegt selbst ein - fuer die Zettel die im Laden zugesteckt werden */}
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="px-4 py-3 border-b">
+            <h3 className="text-sm font-semibold text-gray-900">Blockertag / Urlaub eintragen</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Für Mitarbeiterinnen die dir einen Zettel geben statt es selbst einzutragen.
+            </p>
+          </div>
+          <div className="px-4 py-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+            <div className="md:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Mitarbeiterin</label>
+              <select
+                value={adminEntryEmp}
+                onChange={e => setAdminEntryEmp(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-2"
+              >
+                <option value="">wählen…</option>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Art</label>
+              <select
+                value={adminEntryType}
+                onChange={e => setAdminEntryType(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-2"
+              >
+                <option value="blocker">Blockertag</option>
+                <option value="vacation">Urlaub</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Von</label>
+              <input
+                type="date"
+                value={adminEntryFrom}
+                onChange={e => setAdminEntryFrom(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-2"
+              />
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Bis <span className="text-gray-400">(optional)</span></label>
+              <input
+                type="date"
+                value={adminEntryTo}
+                min={adminEntryFrom}
+                onChange={e => setAdminEntryTo(e.target.value)}
+                className="w-full text-sm border rounded px-2 py-2"
+              />
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Schicht</label>
+              <select
+                value={adminEntryShift}
+                onChange={e => setAdminEntryShift(e.target.value)}
+                disabled={adminEntryType === 'vacation'}
+                className="w-full text-sm border rounded px-2 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                <option value="">ganzer Tag</option>
+                <option value="morning">nur Vormittag</option>
+                <option value="afternoon">nur Nachmittag</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-1">
+              <button
+                onClick={saveAdminEntry}
+                disabled={!adminEntryEmp || !adminEntryFrom || adminEntrySaving}
+                className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {adminEntrySaving ? 'Speichert…' : 'Eintragen'}
+              </button>
+            </div>
+
+            <div className="md:col-span-6">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Grund <span className="text-gray-400">(optional)</span></label>
+              <input
+                type="text"
+                value={adminEntryReason}
+                onChange={e => setAdminEntryReason(e.target.value)}
+                placeholder="z.B. Arzttermin"
+                className="w-full text-sm border rounded px-2 py-2"
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-lg shadow mb-6">
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">
@@ -411,7 +561,7 @@ export default function AdminPage() {
                     <div className="w-24 font-medium text-sm">{emp.name}</div>
                     <div className="flex-1 min-w-[16rem] space-y-1 text-sm">
                       {vacRanges.map((r, i) => (
-                        <div key={'v' + i} className="flex items-center">
+                        <div key={'v' + i} className="flex items-center group">
                           <span className="inline-block w-16 text-xs font-medium text-amber-700">Urlaub</span>
                           <span>
                             {r.from === r.to
@@ -424,13 +574,20 @@ export default function AdminPage() {
                         </div>
                       ))}
                       {blockDays.map((b, i) => (
-                        <div key={'b' + i} className="flex items-center">
+                        <div key={'b' + i} className="flex items-center group">
                           <span className="inline-block w-16 text-xs font-medium text-red-700">Blocker</span>
                           <span>
                             {format(parseISO(b.date), 'dd.MM.yyyy')}
                             <span className="text-gray-500 ml-2">{shiftLabel(b.shift_type)}</span>
                             {b.reason && <span className="text-gray-400 ml-2">· {b.reason}</span>}
                           </span>
+                          <button
+                            onClick={() => removeBlockerEntry(emp.id, b.date)}
+                            className="ml-3 text-xs text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"
+                            title="Eintrag löschen"
+                          >
+                            löschen
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -470,7 +627,10 @@ export default function AdminPage() {
                 {days.map((day) => {
                   const isSat = isSaturday(day)
                   const isSun = day.getDay() === 0
-                  
+                  const dayStr = format(day, 'yyyy-MM-dd')
+                  const touched = touchedDays.has(dayStr)
+                  // Gelber Balken links + heller Hintergrund auf geaenderten Zeilen.
+                  const touchedRow = touched ? 'bg-amber-50 border-l-4 border-l-amber-400' : ''
                   if (isSun) {
                     return (
                       <tr key={day.toISOString()} className="bg-gray-50">
@@ -489,9 +649,10 @@ export default function AdminPage() {
                     const satPost = getShiftForDay(day, 'saturday', 'post')
                     
                     return (
-                      <tr key={day.toISOString()}>
+                      <tr key={day.toISOString()} className={touchedRow}>
                         <td className="px-4 py-3 text-sm font-medium">
                           {format(day, 'dd.MM.')} {getDayName(day)}
+                          {touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
                         </td>
                         <td className={`px-4 py-3 text-sm border ${getShiftColor(satShop)}`}>
                           {renderShiftCell(satShop)}
@@ -512,9 +673,10 @@ export default function AdminPage() {
                   const aPost = getShiftForDay(day, 'afternoon', 'post')
 
                   return (
-                    <tr key={day.toISOString()}>
+                    <tr key={day.toISOString()} className={touchedRow}>
                       <td className="px-4 py-3 text-sm font-medium">
                         {format(day, 'dd.MM.')} {getDayName(day)}
+                        {touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
                       </td>
                       <td className={`px-4 py-3 text-sm border ${getShiftColor(mShop)}`}>
                         {renderShiftCell(mShop)}
