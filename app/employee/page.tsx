@@ -43,7 +43,10 @@ export default function EmployeePage() {
   const maxMonth = addMonthsToKey(planMonth, 3)
   const canGoBack = viewMonth > minMonth
   const canGoForward = viewMonth < maxMonth
-  const readOnly = viewMonth < planMonth
+  // Der 24. ist nur die inoffizielle Deadline fuer die Planung - keine harte Sperre.
+  // Nachtraegliche Aenderungen sind erlaubt, Peter bekommt darueber eine Mail.
+  // Gesperrt ist nur, was schon laeuft oder vorbei ist.
+  const readOnly = viewMonth <= currentMonthKey
 
   useEffect(() => {
     const email = localStorage.getItem('nipps_email')
@@ -257,11 +260,11 @@ export default function EmployeePage() {
 
         <div style={card}>
           <h2 style={heading}>Blockertage</h2>
-          <p style={sub}>Tage an denen du nicht arbeiten kannst. Für {nextMonthLabel} bitte bis zum 24. eintragen.</p>
+          <p style={sub}>Tage an denen du nicht arbeiten kannst. Für {nextMonthLabel} möglichst bis zum 24. eintragen — später geht auch noch, Peter bekommt dann Bescheid.</p>
 
           {readOnly && (
             <div style={{ padding: '12px', background: '#fafafa', borderLeft: '3px solid #ccc', borderRadius: '3px', marginBottom: '20px', fontSize: '13px', color: '#777' }}>
-              {viewMonthLabel} ist schon geplant. Du kannst hier nachschauen, was eingetragen war,
+              {viewMonthLabel} läuft bereits. Du kannst hier nachschauen, was eingetragen war,
               aber nichts mehr ändern. Wenn sich kurzfristig etwas ergibt, sag Peter Bescheid.
             </div>
           )}
