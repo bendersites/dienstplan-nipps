@@ -170,9 +170,26 @@ export default function AdminPage() {
       .from('shifts')
       .update({ employee_id: employeeId, is_open: !employeeId })
       .eq('id', shiftId)
-    
+
     setEditingShift(null)
-    await fetchData()
+
+    // Nur den lokalen State anpassen statt die ganze Seite neu zu laden.
+    // fetchData() wuerde loading=true setzen, die Seite kurz leeren und
+    // nach oben springen lassen - genau das soll beim Bearbeiten nicht passieren.
+    setShifts(prev => {
+      const next = prev.map(s =>
+        s.id === shiftId
+          ? {
+              ...s,
+              employee_id: employeeId,
+              is_open: !employeeId,
+              employee: employeeId ? employees.find(e => e.id === employeeId) : undefined
+            }
+          : s
+      )
+      setOpenShifts(next.filter(s => s.is_open).length)
+      return next
+    })
   }
 
   async function publishPlan() {
