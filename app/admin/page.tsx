@@ -297,6 +297,50 @@ export default function AdminPage() {
     })
   }
 
+  // Alle Mitarbeiterinnen mit Hinweis warum sie ggf. nicht passen.
+  // Peter sieht so immer den ganzen Kader statt einer stillen Auswahl -
+  // "warum kann ich Ines nicht nehmen" soll nicht mehr vorkommen.
+  function getEmployeeOptions(shift: Shift) {
+    return employees.map(e => {
+      const wrongArea = e.qualification !== 'both' && e.qualification !== shift.area
+      const blocked = blockers.find(b =>
+        b.employee_id === e.id &&
+        b.date === shift.date &&
+        (!b.shift_type || b.shift_type === shift.shift_type)
+      )
+      // Schon in einer anderen Schicht am selben Tag?
+      const otherSameDay = shifts.find(s =>
+        s.date === shift.date && s.id !== shift.id && s.employee_id === e.id
+      )
+
+      let note = ''
+      let blocking = false
+      if (wrongArea) {
+        note = e.qualification === 'post' ? 'nur Post' : 'nur Laden'
+        blocking = true
+      } else if (blocked) {
+        note = blocked.type === 'vacation' ? 'Urlaub' : 'Blockertag'
+        blocking = true
+      } else if (otherSameDay) {
+        note = 'schon eingeteilt'
+      }
+
+      return { emp: e, note, blocking }
+    })
+  }
+
+  // Steht jemand an dem Tag zweimal drin?
+  function getDoubleBookedNames(dateStr: string): string[] {
+    const counts: Record<string, number> = {}
+    shifts
+      .filter(s => s.date === dateStr && s.employee_id)
+      .forEach(s => { counts[s.employee_id!] = (counts[s.employee_id!] || 0) + 1 })
+    return Object.entries(counts)
+      .filter(([, n]) => n > 1)
+      .map(([id]) => employees.find(e => e.id === id)?.name)
+      .filter(Boolean) as string[]
+  }
+
   // Aufeinanderfolgende Tage zu Zeitraeumen zusammenfassen,
   // damit aus 16 Urlaubszeilen "08.08. – 23.08." wird.
   function groupRanges(dates: string[]) {
@@ -409,6 +453,15 @@ export default function AdminPage() {
                 <span className="px-4 py-2 text-sm font-medium text-green-700 bg-green-100 rounded-md">
                   ✓ Veröffentlicht
                 </span>
+                {/* Nach dem Veroeffentlichen kann Peter weiter aendern und
+                    den Plan erneut rausschicken - vorher war hier eine Sackgasse. */}
+                <button
+                  onClick={() => setShowPublishModal(true)}
+                  className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  Erneut senden
+                </button>
                 <button
                   onClick={() => setShowDeleteModal(true)}
                   className="flex items-center px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
@@ -629,8 +682,12 @@ export default function AdminPage() {
                   const isSun = day.getDay() === 0
                   const dayStr = format(day, 'yyyy-MM-dd')
                   const touched = touchedDays.has(dayStr)
+                  const doubled = getDoubleBookedNames(dayStr)
                   // Gelber Balken links + heller Hintergrund auf geaenderten Zeilen.
-                  const touchedRow = touched ? 'bg-amber-50 border-l-4 border-l-amber-400' : ''
+                  // Doppelbelegung sticht mit rot heraus und schlaegt die gelbe Markierung.
+                  const touchedRow = doubled.length
+                    ? 'bg-red-50 border-l-4 border-l-red-500'
+                    : touched ? 'bg-amber-50 border-l-4 border-l-amber-400' : ''
                   if (isSun) {
                     return (
                       <tr key={day.toISOString()} className="bg-gray-50">
@@ -652,7 +709,12 @@ export default function AdminPage() {
                       <tr key={day.toISOString()} className={touchedRow}>
                         <td className="px-4 py-3 text-sm font-medium">
                           {format(day, 'dd.MM.')} {getDayName(day)}
-                          {touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
+                          {doubled.length > 0 && (
+                            <span className="ml-2 text-[10px] font-semibold text-red-700 uppercase">
+                              {doubled.join(', ')} doppelt
+                            </span>
+                          )}
+                          {!doubled.length && touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
                         </td>
                         <td className={`px-4 py-3 text-sm border ${getShiftColor(satShop)}`}>
                           {renderShiftCell(satShop)}
@@ -676,7 +738,12 @@ export default function AdminPage() {
                     <tr key={day.toISOString()} className={touchedRow}>
                       <td className="px-4 py-3 text-sm font-medium">
                         {format(day, 'dd.MM.')} {getDayName(day)}
-                        {touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
+                        {doubled.length > 0 && (
+                          <span className="ml-2 text-[10px] font-semibold text-red-700 uppercase">
+                            {doubled.join(', ')} doppelt
+                          </span>
+                        )}
+                        {!doubled.length && touched && <span className="ml-2 text-[10px] font-semibold text-amber-700 uppercase">geändert</span>}
                       </td>
                       <td className={`px-4 py-3 text-sm border ${getShiftColor(mShop)}`}>
                         {renderShiftCell(mShop)}
@@ -739,9 +806,13 @@ export default function AdminPage() {
       {showPublishModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-medium mb-4">Plan veröffentlichen?</h3>
+            <h3 className="text-lg font-medium mb-4">
+              {schedule?.status === 'published' ? 'Plan erneut senden?' : 'Plan veröffentlichen?'}
+            </h3>
             <p className="text-gray-600 mb-6">
-              Der Dienstplan wird für alle Mitarbeiterinnen sichtbar und per E-Mail versendet.
+              {schedule?.status === 'published'
+                ? 'Alle Mitarbeiterinnen bekommen den aktuellen Stand noch einmal per E-Mail. Nutze das, wenn du nach dem Veröffentlichen noch etwas geändert hast.'
+                : 'Der Dienstplan wird für alle Mitarbeiterinnen sichtbar und per E-Mail versendet.'}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -754,7 +825,7 @@ export default function AdminPage() {
                 onClick={publishPlan}
                 className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
               >
-                Veröffentlichen & E-Mail senden
+                {schedule?.status === 'published' ? 'Erneut senden' : 'Veröffentlichen & E-Mail senden'}
               </button>
             </div>
           </div>
@@ -793,7 +864,7 @@ export default function AdminPage() {
     if (!shift) return '-'
     
     if (editingShift === shift.id) {
-      const availableEmps = getAvailableEmployees(shift)
+      const options = getEmployeeOptions(shift)
       return (
         <div className="flex items-center space-x-2">
           <select
@@ -802,8 +873,10 @@ export default function AdminPage() {
             defaultValue={shift.employee_id || ''}
           >
             <option value="">OFFEN</option>
-            {availableEmps.map(emp => (
-              <option key={emp.id} value={emp.id}>{emp.name}</option>
+            {options.map(({ emp, note, blocking }) => (
+              <option key={emp.id} value={emp.id} disabled={blocking}>
+                {emp.name}{note ? ` — ${note}` : ''}
+              </option>
             ))}
           </select>
           <button onClick={() => setEditingShift(null)} className="text-xs text-gray-500">
