@@ -298,8 +298,8 @@ export default function AdminPage() {
   }
 
   // Alle Mitarbeiterinnen mit Hinweis warum sie ggf. nicht passen.
-  // Peter sieht so immer den ganzen Kader statt einer stillen Auswahl -
-  // "warum kann ich Ines nicht nehmen" soll nicht mehr vorkommen.
+  // Nichts wird gesperrt - Peter soll im Notfall jede auswaehlen koennen,
+  // aber sehen worauf er sich einlaesst.
   function getEmployeeOptions(shift: Shift) {
     return employees.map(e => {
       const wrongArea = e.qualification !== 'both' && e.qualification !== shift.area
@@ -314,18 +314,15 @@ export default function AdminPage() {
       )
 
       let note = ''
-      let blocking = false
       if (wrongArea) {
         note = e.qualification === 'post' ? 'nur Post' : 'nur Laden'
-        blocking = true
       } else if (blocked) {
         note = blocked.type === 'vacation' ? 'Urlaub' : 'Blockertag'
-        blocking = true
       } else if (otherSameDay) {
         note = 'schon eingeteilt'
       }
 
-      return { emp: e, note, blocking }
+      return { emp: e, note }
     })
   }
 
@@ -873,8 +870,8 @@ export default function AdminPage() {
             defaultValue={shift.employee_id || ''}
           >
             <option value="">OFFEN</option>
-            {options.map(({ emp, note, blocking }) => (
-              <option key={emp.id} value={emp.id} disabled={blocking}>
+            {options.map(({ emp, note }) => (
+              <option key={emp.id} value={emp.id}>
                 {emp.name}{note ? ` — ${note}` : ''}
               </option>
             ))}
