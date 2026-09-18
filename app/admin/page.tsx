@@ -22,6 +22,27 @@ import { getMonthDays, getDayName, isSaturday } from '@/lib/utils'
 import { computeVacationHours } from '@/lib/planner'
 import { getShiftDuration, getTargetHours, getMaxHours, getHolidayName, isHoliday } from '@/lib/rules'
 
+// Loeschen-Knopf mit Sicherheitsstufe: erster Klick faerbt ihn rot und
+// fragt nach, zweiter loescht. Bewusst immer sichtbar - der alte Knopf
+// war opacity-0 und tauchte erst beim Mouseover auf, auf dem Tablet also
+// gar nicht.
+function DeleteButton({ label, active, busy, onClick, title }: any) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      title={title || 'Eintrag löschen'}
+      className={
+        active
+          ? 'text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded px-2 py-0.5 transition disabled:opacity-50'
+          : 'text-xs text-gray-400 hover:text-red-600 underline underline-offset-2 transition disabled:opacity-50'
+      }
+    >
+      {active ? 'wirklich löschen?' : label}
+    </button>
+  )
+}
+
 type Employee = {
   id: string
   name: string
@@ -71,6 +92,10 @@ export default function AdminPage() {
   const [adminEntryShift, setAdminEntryShift] = useState('')
   const [adminEntryReason, setAdminEntryReason] = useState('')
   const [adminEntrySaving, setAdminEntrySaving] = useState(false)
+  // Schluessel des Eintrags, der gerade zum Loeschen angeklickt wurde.
+  // Zweiter Klick auf denselben Schluessel loescht wirklich.
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const monthStart = startOfMonth(currentDate)
   const days = getMonthDays(currentDate.getFullYear(), currentDate.getMonth())
@@ -99,7 +124,7 @@ export default function AdminPage() {
 
     const { data: blockerData } = await supabase
       .from('blocker_days')
-      .select('employee_id, date, type, shift_type, reason')
+      .select('id, employee_id, date, type, shift_type, reason')
       .gte('date', monthStr)
       .lt('date', nextMonthStr)
       .order('date')
@@ -247,9 +272,26 @@ export default function AdminPage() {
     await fetchData()
   }
 
-  async function removeBlockerEntry(employeeId: string, date: string) {
-    await supabase.from('blocker_days').delete().eq('employee_id', employeeId).eq('date', date)
+  // Loescht genau die uebergebenen Zeilen - ueber ihre id, nicht ueber
+  // Datum. Vorher wurde nach employee_id + date geloescht: stand an einem
+  // Tag ein Blocker UND ein Urlaubstag, waren mit einem Klick beide weg.
+  async function deleteEntries(ids: string[]) {
+    if (!ids.length) return
+    setDeleting(true)
+    const { error } = await supabase.from('blocker_days').delete().in('id', ids)
+    setDeleting(false)
+    setConfirmDelete(null)
+    if (error) { alert('Konnte nicht geloescht werden: ' + error.message); return }
     await fetchData()
+    // Peter bekommt eine Aenderungsmeldung, genau wie beim Eintragen.
+    await fetch('/api/check-blockers', { method: 'POST' })
+  }
+
+  // Zweistufig: erster Klick setzt den Schluessel, zweiter loescht.
+  // Kein Popup - das laesst sich auf dem Tablet schlecht bedienen.
+  function askDelete(key: string, ids: string[]) {
+    if (confirmDelete === key) deleteEntries(ids)
+    else setConfirmDelete(key)
   }
 
   async function publishPlan() {
@@ -612,36 +654,76 @@ export default function AdminPage() {
                   <div key={emp.id} className="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-2">
                     <div className="w-24 font-medium text-sm">{emp.name}</div>
                     <div className="flex-1 min-w-[16rem] space-y-1 text-sm">
-                      {vacRanges.map((r, i) => (
-                        <div key={'v' + i} className="flex items-center group">
-                          <span className="inline-block w-16 text-xs font-medium text-amber-700">Urlaub</span>
-                          <span>
-                            {r.from === r.to
-                              ? format(parseISO(r.from), 'dd.MM.yyyy')
-                              : `${format(parseISO(r.from), 'dd.MM.')} – ${format(parseISO(r.to), 'dd.MM.yyyy')}`}
-                            <span className="text-gray-500 ml-2">
-                              ({Math.round((parseISO(r.to).getTime() - parseISO(r.from).getTime()) / 86400000) + 1} Tage)
+                      {vacRanges.map((r, i) => {
+                        // Alle Urlaubszeilen dieses Zeitraums - die werden
+                        // beim Loeschen des ganzen Bereichs entfernt.
+                        const rangeRows = mine.filter(
+                          b => b.type === 'vacation' && b.date >= r.from && b.date <= r.to
+                        )
+                        const rangeKey = `vr:${emp.id}:${r.from}:${r.to}`
+                        const single = r.from === r.to
+                        return (
+                          <div key={'v' + i}>
+                            <div className="flex items-center flex-wrap gap-x-2">
+                              <span className="inline-block w-16 text-xs font-medium text-amber-700">Urlaub</span>
+                              <span>
+                                {single
+                                  ? format(parseISO(r.from), 'dd.MM.yyyy')
+                                  : `${format(parseISO(r.from), 'dd.MM.')} – ${format(parseISO(r.to), 'dd.MM.yyyy')}`}
+                                <span className="text-gray-500 ml-2">
+                                  ({rangeRows.length} {rangeRows.length === 1 ? 'Tag' : 'Tage'})
+                                </span>
+                              </span>
+                              <DeleteButton
+                                label={single ? 'löschen' : 'Zeitraum löschen'}
+                                active={confirmDelete === rangeKey}
+                                busy={deleting}
+                                onClick={() => askDelete(rangeKey, rangeRows.map(x => x.id))}
+                              />
+                            </div>
+                            {/* Einzelne Tage, damit Peter einen Tag aus dem
+                                Urlaub nehmen kann ohne alles neu einzutragen. */}
+                            {!single && (
+                              <div className="ml-16 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                                {rangeRows.map(row => {
+                                  const dayKey = `vd:${row.id}`
+                                  return (
+                                    <span key={row.id} className="inline-flex items-center gap-1 text-xs text-gray-600">
+                                      {format(parseISO(row.date), 'dd.MM.')}
+                                      <DeleteButton
+                                        label="×"
+                                        title={`${format(parseISO(row.date), 'dd.MM.')} aus dem Urlaub nehmen`}
+                                        active={confirmDelete === dayKey}
+                                        busy={deleting}
+                                        onClick={() => askDelete(dayKey, [row.id])}
+                                      />
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {blockDays.map(b => {
+                        const key = `b:${b.id}`
+                        return (
+                          <div key={b.id} className="flex items-center flex-wrap gap-x-2">
+                            <span className="inline-block w-16 text-xs font-medium text-red-700">Blocker</span>
+                            <span>
+                              {format(parseISO(b.date), 'dd.MM.yyyy')}
+                              <span className="text-gray-500 ml-2">{shiftLabel(b.shift_type)}</span>
+                              {b.reason && <span className="text-gray-400 ml-2">· {b.reason}</span>}
                             </span>
-                          </span>
-                        </div>
-                      ))}
-                      {blockDays.map((b, i) => (
-                        <div key={'b' + i} className="flex items-center group">
-                          <span className="inline-block w-16 text-xs font-medium text-red-700">Blocker</span>
-                          <span>
-                            {format(parseISO(b.date), 'dd.MM.yyyy')}
-                            <span className="text-gray-500 ml-2">{shiftLabel(b.shift_type)}</span>
-                            {b.reason && <span className="text-gray-400 ml-2">· {b.reason}</span>}
-                          </span>
-                          <button
-                            onClick={() => removeBlockerEntry(emp.id, b.date)}
-                            className="ml-3 text-xs text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"
-                            title="Eintrag löschen"
-                          >
-                            löschen
-                          </button>
-                        </div>
-                      ))}
+                            <DeleteButton
+                              label="löschen"
+                              active={confirmDelete === key}
+                              busy={deleting}
+                              onClick={() => askDelete(key, [b.id])}
+                            />
+                          </div>
+                        )
+                      })}
                     </div>
                     <div className="text-sm text-gray-600 whitespace-nowrap">
                       {vacHours > 0 ? `${vacHours}h angerechnet` : '–'}

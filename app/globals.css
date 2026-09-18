@@ -67,9 +67,6 @@
   border-right: 1px solid #111 !important;
 }
 
-/* Kopfzeile eines Feiertags: schwarz wie Sonntag, aber Wochentag und
-   Datum bleiben weiss lesbar. Sonst fehlt mitten in der Woche eine Zahl. */
-.mp-hol-head { color: #fff !important; }
 
 .mp-section td { background: #ddd; font-weight: 700; height: 16px; }
 .mp-section td.mp-name { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }

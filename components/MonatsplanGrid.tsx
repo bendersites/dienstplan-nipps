@@ -49,12 +49,12 @@ function daysOfMonth(monthKey) {
   return out
 }
 
-// Kopfzellen: Sonntag komplett schwarz, Feiertag ebenfalls schwarz,
-// aber mit weisser Schrift - Wochentag und Datum bleiben lesbar,
-// sonst fehlt mitten in der Woche eine Zahl im Datumsband.
+// Feiertage werden exakt wie Sonntage dargestellt: schwarzer Balken,
+// Kopfzelle leer. Bleibt Text stehen, haelt die Spalte ihre volle
+// Breite und der Balken wird dicker als die Sonntagsbalken daneben.
+// Welcher Feiertag es war, steht unter dem Plan.
 function headCls(d) {
-  if (d.dow === 0) return 'mp-sun'
-  if (d.holiday) return 'mp-sun mp-hol-head'
+  if (d.closed) return 'mp-sun'
   if (d.dow === 6) return 'mp-sat'
   return ''
 }
@@ -180,6 +180,10 @@ export default function MonatsplanGrid({
     const rows = emps.filter(e => worksIn(e, area))
     const openRow = showOpen
       ? days.map(d => {
+          // An geschlossenen Tagen wird nichts angezeigt - sonst steht da
+          // eine rote OFFEN-Zeile, die komplett leer ist, weil ihre
+          // Eintraege alle hinter einem schwarzen Balken liegen.
+          if (d.closed) return null
           const t = openMap.get(`${d.date}|${area}`)
           if (!t || !t.size) return null
           const hasM = t.has('morning')
@@ -260,7 +264,7 @@ export default function MonatsplanGrid({
             <th className="mp-name" />
             {days.map(d => (
               <th key={d.date} className={headCls(d)}>
-                {d.dow === 0 ? '' : WD[d.dow]}
+                {d.closed ? '' : WD[d.dow]}
               </th>
             ))}
           </tr>
@@ -268,7 +272,7 @@ export default function MonatsplanGrid({
             <th className="mp-name">{MONTH_NAMES[m - 1].slice(0, 3)} {String(y).slice(2)}</th>
             {days.map(d => (
               <th key={d.date} className={headCls(d)} title={d.holiday || undefined}>
-                {d.dow === 0 ? '' : d.day}
+                {d.closed ? '' : d.day}
               </th>
             ))}
           </tr>
