@@ -9,13 +9,15 @@
 //
 // Aufbau wie der handschriftliche Zettel im Laden:
 //   Wochentag ueber Datum, Block "Laden" oben, "Post" unten,
-//   Sonntag als schwarzer Balken (Wochengrenze),
+//   Sonntag und Feiertage als schwarzer Balken (Laden zu),
 //   V = Vormittag, N = Nachmittag, V/N = Doppeldienst,
 //   U = Urlaub, B = Blockertag.
 //
 // Bewusst KEINE Stundenzahlen - unter dem Plan stehen
 // stattdessen Urlaub und Blockertage der Mitarbeiter.
 // ============================================================
+
+import { isHoliday, getHolidayName } from '@/lib/rules'
 
 const WD = ['so', 'mo', 'di', 'mi', 'do', 'fr', 'sa']
 const MONTH_NAMES = [
@@ -33,13 +35,28 @@ function daysOfMonth(monthKey) {
   const count = new Date(Date.UTC(y, m, 0)).getUTCDate()
   const out = []
   for (let d = 1; d <= count; d++) {
+    const date = `${y}-${pad(m)}-${pad(d)}`
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
     out.push({
-      date: `${y}-${pad(m)}-${pad(d)}`,
+      date,
       day: d,
-      dow: new Date(Date.UTC(y, m - 1, d)).getUTCDay(),
+      dow,
+      // Laden zu: Sonntag oder Feiertag. Beides wird gleich dargestellt.
+      closed: dow === 0 || isHoliday(date),
+      holiday: getHolidayName(date),
     })
   }
   return out
+}
+
+// Kopfzellen: Sonntag komplett schwarz, Feiertag ebenfalls schwarz,
+// aber mit weisser Schrift - Wochentag und Datum bleiben lesbar,
+// sonst fehlt mitten in der Woche eine Zahl im Datumsband.
+function headCls(d) {
+  if (d.dow === 0) return 'mp-sun'
+  if (d.holiday) return 'mp-sun mp-hol-head'
+  if (d.dow === 6) return 'mp-sat'
+  return ''
 }
 
 function fmtDE(dateStr) {
@@ -179,14 +196,14 @@ export default function MonatsplanGrid({
         <tr className="mp-section">
           <td className="mp-name">{title}</td>
           {days.map(d => (
-            <td key={d.date} className={d.dow === 0 ? 'mp-sun' : ''} />
+            <td key={d.date} className={d.closed ? 'mp-sun' : ''} />
           ))}
         </tr>
         {rows.map(emp => (
           <tr key={area + emp.id} className={emp.id === highlightEmployeeId ? 'mp-me' : ''}>
             <td className="mp-name">{emp.name}</td>
             {days.map(d => {
-              if (d.dow === 0) return <td key={d.date} className="mp-sun" />
+              if (d.closed) return <td key={d.date} className="mp-sun" />
               const c = cellFor(emp, d, area)
               return (
                 <td key={d.date} className={c ? `mp-cell mp-${c.kind}` : 'mp-cell'}>
@@ -200,7 +217,7 @@ export default function MonatsplanGrid({
           <tr className="mp-openrow">
             <td className="mp-name">OFFEN</td>
             {days.map((d, i) => {
-              if (d.dow === 0) return <td key={d.date} className="mp-sun" />
+              if (d.closed) return <td key={d.date} className="mp-sun" />
               return <td key={d.date} className="mp-cell mp-open">{openRow[i] || ''}</td>
             })}
           </tr>
@@ -222,6 +239,9 @@ export default function MonatsplanGrid({
     .filter(Boolean)
 
   const colWidth = `${(100 - 7) / days.length}%`
+  // Feiertage des Monats fuer die Fusszeile - der schwarze Balken allein
+  // sagt Peter nicht, warum der Laden zu ist.
+  const holidaysInMonth = days.filter(d => d.holiday)
 
   return (
     <div className="mp-root">
@@ -239,7 +259,7 @@ export default function MonatsplanGrid({
           <tr className="mp-wd">
             <th className="mp-name" />
             {days.map(d => (
-              <th key={d.date} className={d.dow === 0 ? 'mp-sun' : d.dow === 6 ? 'mp-sat' : ''}>
+              <th key={d.date} className={headCls(d)}>
                 {d.dow === 0 ? '' : WD[d.dow]}
               </th>
             ))}
@@ -247,7 +267,7 @@ export default function MonatsplanGrid({
           <tr className="mp-dates">
             <th className="mp-name">{MONTH_NAMES[m - 1].slice(0, 3)} {String(y).slice(2)}</th>
             {days.map(d => (
-              <th key={d.date} className={d.dow === 0 ? 'mp-sun' : d.dow === 6 ? 'mp-sat' : ''}>
+              <th key={d.date} className={headCls(d)} title={d.holiday || undefined}>
                 {d.dow === 0 ? '' : d.day}
               </th>
             ))}
@@ -262,8 +282,14 @@ export default function MonatsplanGrid({
       <div className="mp-legend">
         V = Vormittag 09–14 &nbsp;·&nbsp; N = Nachmittag 14–19 &nbsp;·&nbsp; V/N = Doppeldienst
         &nbsp;·&nbsp; Samstag 09–15 &nbsp;·&nbsp; U = Urlaub &nbsp;·&nbsp; B = Blockertag
-        &nbsp;·&nbsp; schwarzer Balken = Sonntag geschlossen
+        &nbsp;·&nbsp; schwarzer Balken = geschlossen (Sonntag &amp; Feiertag)
       </div>
+
+      {holidaysInMonth.length > 0 && (
+        <div className="mp-legend">
+          Feiertage: {holidaysInMonth.map(d => `${d.day}.${m}. ${d.holiday}`).join(' · ')}
+        </div>
+      )}
 
       <div className="mp-absences">
         <div className="mp-abs-title">Urlaub &amp; Blockertage</div>

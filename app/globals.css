@@ -59,12 +59,17 @@
 .mp-dates th { font-size: 10px; font-weight: 600; background: #f4f4f4; }
 .mp-sat { background: #e9e9e9 !important; }
 
-/* Sonntag: schwarzer Balken als Wochengrenze */
+/* Sonntag: schwarzer Balken als Wochengrenze.
+   Feiertage bekommen denselben Balken - Laden zu ist Laden zu. */
 .mp-sun {
   background: #111 !important;
   border-left: 1px solid #111 !important;
   border-right: 1px solid #111 !important;
 }
+
+/* Kopfzeile eines Feiertags: schwarz wie Sonntag, aber Wochentag und
+   Datum bleiben weiss lesbar. Sonst fehlt mitten in der Woche eine Zahl. */
+.mp-hol-head { color: #fff !important; }
 
 .mp-section td { background: #ddd; font-weight: 700; height: 16px; }
 .mp-section td.mp-name { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }

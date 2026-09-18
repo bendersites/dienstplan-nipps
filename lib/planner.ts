@@ -20,6 +20,8 @@ import {
   daysInMonth,
   parseISODate,
   countsAsVacationDay,
+  isHoliday,
+  isHolidayYearCovered,
 } from './rules'
 
 // ------------------------------------------------------------
@@ -129,12 +131,23 @@ export function buildPlan({ month, employees, blockers }) {
   const isZigarette = (dow, shiftType, area) =>
     (dow === 1 || dow === 4) && shiftType === 'morning' && area === 'shop'
 
+  // Deckt die Feiertagsliste dieses Jahr ueberhaupt ab? Wenn nicht,
+  // wuerde still ueber alle Feiertage hinweggeplant. Lieber laut sein.
+  if (!isHolidayYearCovered(year)) {
+    warnings.push(
+      `Keine Feiertage fuer ${year} hinterlegt - Feiertage werden NICHT beruecksichtigt. In lib/rules.ts (HOLIDAYS) nachtragen.`
+    )
+  }
+
   // --- Alle Slots des Monats aufbauen ---
+  // Sonntag und Feiertage sind zu: es entsteht gar kein Slot, damit
+  // nichts geplant, nichts angerechnet und nichts OFFEN gemeldet wird.
   const slots = []
   for (let d = 1; d <= totalDays; d++) {
     const dateStr = toISODate(year, monthNum, d)
     const dow = getDayOfWeek(dateStr)
     if (dow === 0) continue
+    if (isHoliday(dateStr)) continue
     const shiftTypes = dow === 6 ? ['saturday'] : ['morning', 'afternoon']
     for (const shiftType of shiftTypes) {
       for (const area of ['shop', 'post']) {

@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { format, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, parseISO } from 'date-fns'
-import { getPlanningMonth, addMonthsToKey } from '@/lib/rules'
+import { getPlanningMonth, addMonthsToKey, isHoliday } from '@/lib/rules'
 import MonatsplanGrid from '@/components/MonatsplanGrid'
 
 export default function EmployeePage() {
@@ -125,9 +125,12 @@ export default function EmployeePage() {
     // Ohne das entstehen bei zweimaligem Eintragen doppelte Zeilen und
     // der Generator rechnet die Stunden doppelt an.
     const existing = new Set(blockers.filter(b => b.type === 'vacation').map(b => b.date))
+    // Feiertage werden uebersprungen - der Laden ist zu, ein Urlaubstag
+    // waere dort weder Schicht noch Stunde.
     const inserts = days
       .map(d => format(d, 'yyyy-MM-dd'))
       .filter(d => !existing.has(d))
+      .filter(d => !isHoliday(d))
       .map(d => ({ employee_id: employee.id, date: d, type: 'vacation', shift_type: null }))
 
     if (inserts.length) {

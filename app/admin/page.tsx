@@ -20,7 +20,7 @@ import {
 import MonatsplanGrid from '@/components/MonatsplanGrid'
 import { getMonthDays, getDayName, isSaturday } from '@/lib/utils'
 import { computeVacationHours } from '@/lib/planner'
-import { getShiftDuration, getTargetHours, getMaxHours } from '@/lib/rules'
+import { getShiftDuration, getTargetHours, getMaxHours, getHolidayName, isHoliday } from '@/lib/rules'
 
 type Employee = {
   id: string
@@ -217,7 +217,9 @@ export default function AdminPage() {
     const rows: any[] = []
 
     for (let d = from; d <= to; d = addDays(d, 1)) {
-      if (d.getDay() === 0) continue // Sonntag hat sowieso zu
+      // Sonntag und Feiertage haben sowieso zu - kein Eintrag noetig.
+      if (d.getDay() === 0) continue
+      if (isHoliday(format(d, 'yyyy-MM-dd'))) continue
       rows.push({
         employee_id: adminEntryEmp,
         date: format(d, 'yyyy-MM-dd'),
@@ -676,8 +678,11 @@ export default function AdminPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {days.map((day) => {
                   const isSat = isSaturday(day)
-                  const isSun = day.getDay() === 0
                   const dayStr = format(day, 'yyyy-MM-dd')
+                  const holiday = getHolidayName(dayStr)
+                  // Feiertag wird genauso behandelt wie Sonntag: Laden zu,
+                  // keine Schichten, nur der Grund steht dabei.
+                  const isSun = day.getDay() === 0 || !!holiday
                   const touched = touchedDays.has(dayStr)
                   const doubled = getDoubleBookedNames(dayStr)
                   // Gelber Balken links + heller Hintergrund auf geaenderten Zeilen.
@@ -692,7 +697,7 @@ export default function AdminPage() {
                           {format(day, 'dd.MM.')} {getDayName(day)}
                         </td>
                         <td colSpan={4} className="px-4 py-3 text-sm text-gray-400 text-center">
-                          Geschlossen
+                          {holiday ? `Geschlossen · ${holiday}` : 'Geschlossen'}
                         </td>
                       </tr>
                     )

@@ -83,6 +83,66 @@ export const FIXED_SLOTS = {
 
 export const DAY_KEY = { 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' }
 
+// ============================================================
+// FEIERTAGE - Nordrhein-Westfalen
+// Feste Liste, bewusst nur fuer die Jahre, die geplant werden.
+// Heiligabend (24.12.) und Silvester (31.12.) sind KEINE
+// gesetzlichen Feiertage und werden normal geplant.
+//
+// ACHTUNG: Laeuft Ende 2027 aus. Fehlt ein Jahr, warnt der
+// Generator sichtbar (siehe lib/planner.ts) - dann hier die
+// naechsten Jahre nachtragen.
+// ============================================================
+export const HOLIDAYS = {
+  // 2026 - Ostersonntag 05.04.
+  '2026-01-01': 'Neujahr',
+  '2026-04-03': 'Karfreitag',
+  '2026-04-06': 'Ostermontag',
+  '2026-05-01': 'Tag der Arbeit',
+  '2026-05-14': 'Christi Himmelfahrt',
+  '2026-05-25': 'Pfingstmontag',
+  '2026-06-04': 'Fronleichnam',
+  '2026-10-03': 'Tag der Deutschen Einheit',
+  '2026-11-01': 'Allerheiligen',
+  '2026-12-25': '1. Weihnachtstag',
+  '2026-12-26': '2. Weihnachtstag',
+
+  // 2027 - Ostersonntag 28.03.
+  '2027-01-01': 'Neujahr',
+  '2027-03-26': 'Karfreitag',
+  '2027-03-29': 'Ostermontag',
+  '2027-05-01': 'Tag der Arbeit',
+  '2027-05-06': 'Christi Himmelfahrt',
+  '2027-05-17': 'Pfingstmontag',
+  '2027-05-27': 'Fronleichnam',
+  '2027-10-03': 'Tag der Deutschen Einheit',
+  '2027-11-01': 'Allerheiligen',
+  '2027-12-25': '1. Weihnachtstag',
+  '2027-12-26': '2. Weihnachtstag',
+}
+
+// Welche Jahre deckt die Liste ab? Fuer die Warnung im Generator.
+export const HOLIDAY_YEARS = [...new Set(Object.keys(HOLIDAYS).map((d) => Number(d.slice(0, 4))))]
+
+export function getHolidayName(dateStr) {
+  return HOLIDAYS[dateStr] ?? null
+}
+
+export function isHoliday(dateStr) {
+  return HOLIDAYS[dateStr] !== undefined
+}
+
+// Ist das Jahr ueberhaupt in der Liste? Sonst wuerde der Plan
+// still ueber alle Feiertage hinwegrechnen.
+export function isHolidayYearCovered(year) {
+  return HOLIDAY_YEARS.includes(Number(year))
+}
+
+// Laden zu: Sonntag oder Feiertag.
+export function isClosedDay(dateStr) {
+  return getDayOfWeek(dateStr) === 0 || isHoliday(dateStr)
+}
+
 export function getShiftDuration(shiftType) {
   return SHIFT_HOURS[shiftType] ?? 5
 }
@@ -138,12 +198,15 @@ export function fixedWeekdaysFor(name) {
 
 // Kernregel fuer die Urlaubsanrechnung:
 // Ein Urlaubstag zaehlt genau dann 5h, wenn die Person an diesem Wochentag
-// ueberhaupt eine Schicht haette. Samstag und Sonntag zaehlen nie.
+// ueberhaupt eine Schicht haette. Samstag, Sonntag und Feiertage zaehlen nie.
 //   - Poolkraefte und Peter: jeder Werktag Mo-Fr, an dem sie verfuegbar sind
 //   - Fixkraefte (Cindy, Anni, Marika): nur ihre festen Wochentage
+// An Feiertagen ist der Laden zu - der Tag faellt ersatzlos weg und wird
+// weder als Schicht geplant noch als Urlaub angerechnet.
 export function countsAsVacationDay(emp, dateStr) {
   const dow = getDayOfWeek(dateStr)
   if (dow === 0 || dow === 6) return false
+  if (isHoliday(dateStr)) return false
 
   const isPool = GENERAL_POOL_NAMES.includes(emp.name) || emp.name === SPRINGER_NAME
   if (isPool) {
