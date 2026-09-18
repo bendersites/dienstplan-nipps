@@ -67,6 +67,17 @@
   border-right: 1px solid #111 !important;
 }
 
+/* Kopfzeile eines geschlossenen Tages: Wochentag und Datum bleiben
+   hell lesbar. Die Spalte ist schmal, deshalb kleinere Schrift und
+   overflow hidden - der Text darf die Spalte nicht aufziehen. */
+.mp-closed-head {
+  color: #e8e8e8 !important;
+  font-size: 7px !important;
+  font-weight: 500 !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
 
 .mp-section td { background: #ddd; font-weight: 700; height: 16px; }
 .mp-section td.mp-name { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
@@ -160,6 +171,8 @@
   .mp-table th, .mp-table td { padding: 0; }
   .mp-wd th { font-size: 8pt; height: 10pt !important; }
   .mp-dates th { font-size: 9pt; height: 10pt !important; }
+  /* Im Druck ist die Spalte nur wenige Millimeter breit. */
+  .mp-closed-head { font-size: 6pt !important; }
   .mp-section td { height: 10pt !important; font-size: 8pt; }
   .mp-title { font-size: 14pt; }
   .mp-brand { font-size: 9pt; }

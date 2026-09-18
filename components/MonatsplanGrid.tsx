@@ -49,12 +49,17 @@ function daysOfMonth(monthKey) {
   return out
 }
 
-// Feiertage werden exakt wie Sonntage dargestellt: schwarzer Balken,
-// Kopfzelle leer. Bleibt Text stehen, haelt die Spalte ihre volle
-// Breite und der Balken wird dicker als die Sonntagsbalken daneben.
-// Welcher Feiertag es war, steht unter dem Plan.
+// Feiertage bekommen denselben schwarzen Balken wie Sonntage. In der
+// Kopfzeile steht Wochentag und Datum in heller Schrift, damit man den
+// Tag noch zuordnen kann; welcher Feiertag es ist, steht in der Legende.
+//
+// Geschlossene Tage bekommen eine feste schmale Spalte. Ohne das
+// behalten sie die volle Tagesbreite, und wo zwei aufeinander folgen
+// (Feiertag 3.10. + Sonntag 4.10.) wird daraus ein doppelt dicker Klotz.
+// Breite in Prozent der Tabelle.
+const CLOSED_W = 2.2
+
 function headCls(d) {
-  if (d.closed) return 'mp-sun'
   if (d.dow === 6) return 'mp-sat'
   return ''
 }
@@ -178,22 +183,23 @@ export default function MonatsplanGrid({
 
   function renderBlock(title, area) {
     const rows = emps.filter(e => worksIn(e, area))
-    const openRow = showOpen
-      ? days.map(d => {
-          // An geschlossenen Tagen wird nichts angezeigt - sonst steht da
-          // eine rote OFFEN-Zeile, die komplett leer ist, weil ihre
-          // Eintraege alle hinter einem schwarzen Balken liegen.
-          if (d.closed) return null
-          const t = openMap.get(`${d.date}|${area}`)
-          if (!t || !t.size) return null
-          const hasM = t.has('morning')
-          const hasA = t.has('afternoon')
-          if (hasM && hasA) return 'V/N'
-          if (hasA) return 'N'
-          return 'V'
-        })
-      : null
-    const hasOpen = openRow && openRow.some(Boolean)
+    // Nach Datum, nicht nach Position - die Spalten sind seit dem
+    // Zusammenfassen geschlossener Tage nicht mehr deckungsgleich mit days.
+    const openBy = new Map()
+    if (showOpen) {
+      for (const d of days) {
+        // An geschlossenen Tagen wird nichts angezeigt - sonst steht da
+        // eine rote OFFEN-Zeile, die komplett leer ist, weil ihre
+        // Eintraege alle hinter einem schwarzen Balken liegen.
+        if (d.closed) continue
+        const t = openMap.get(`${d.date}|${area}`)
+        if (!t || !t.size) continue
+        const hasM = t.has('morning')
+        const hasA = t.has('afternoon')
+        openBy.set(d.date, hasM && hasA ? 'V/N' : hasA ? 'N' : 'V')
+      }
+    }
+    const hasOpen = openBy.size > 0
 
     return (
       <>
@@ -220,9 +226,9 @@ export default function MonatsplanGrid({
         {hasOpen && (
           <tr className="mp-openrow">
             <td className="mp-name">OFFEN</td>
-            {days.map((d, i) => {
+            {days.map(d => {
               if (d.closed) return <td key={d.date} className="mp-sun" />
-              return <td key={d.date} className="mp-cell mp-open">{openRow[i] || ''}</td>
+              return <td key={d.date} className="mp-cell mp-open">{openBy.get(d.date) || ''}</td>
             })}
           </tr>
         )}
@@ -242,7 +248,10 @@ export default function MonatsplanGrid({
     })
     .filter(Boolean)
 
-  const colWidth = `${(100 - 7) / days.length}%`
+  // Geschlossene Tage bekommen feste schmale Spalten, die restliche
+  // Breite teilen sich die Arbeitstage.
+  const closedCount = days.filter(d => d.closed).length
+  const colWidth = `${(100 - 7 - closedCount * CLOSED_W) / (days.length - closedCount)}%`
   // Feiertage des Monats fuer die Fusszeile - der schwarze Balken allein
   // sagt Peter nicht, warum der Laden zu ist.
   const holidaysInMonth = days.filter(d => d.holiday)
@@ -257,22 +266,28 @@ export default function MonatsplanGrid({
       <table className="mp-table">
         <colgroup>
           <col style={{ width: '7%' }} />
-          {days.map(d => <col key={d.date} style={{ width: colWidth }} />)}
+          {days.map(d => (
+            <col key={d.date} style={{ width: d.closed ? `${CLOSED_W}%` : colWidth }} />
+          ))}
         </colgroup>
         <thead>
           <tr className="mp-wd">
             <th className="mp-name" />
             {days.map(d => (
-              <th key={d.date} className={headCls(d)}>
-                {d.closed ? '' : WD[d.dow]}
+              <th key={d.date} className={d.closed ? 'mp-sun mp-closed-head' : headCls(d)}>
+                {WD[d.dow]}
               </th>
             ))}
           </tr>
           <tr className="mp-dates">
             <th className="mp-name">{MONTH_NAMES[m - 1].slice(0, 3)} {String(y).slice(2)}</th>
             {days.map(d => (
-              <th key={d.date} className={headCls(d)} title={d.holiday || undefined}>
-                {d.closed ? '' : d.day}
+              <th
+                key={d.date}
+                className={d.closed ? 'mp-sun mp-closed-head' : headCls(d)}
+                title={d.holiday || undefined}
+              >
+                {d.day}
               </th>
             ))}
           </tr>
